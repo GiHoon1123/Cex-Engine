@@ -120,7 +120,7 @@ use crate::domains::cex::models::*;
         (name = "Health", description = "Health check API endpoints")
     ),
     info(
-        title = "Solana API Server",
+        title = "CEX Engine",
         description = "API server for Solana blockchain interactions",
         version = "1.0.0"
     )
