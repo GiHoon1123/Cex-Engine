@@ -6,8 +6,8 @@ mod common;
 use common::*;
 use rust_decimal::Decimal;
 use chrono::Utc;
-use cex_backend::domains::cex::engine::types::OrderEntry;
-use cex_backend::domains::cex::engine::Engine;
+use cex_engine::domains::cex::engine::types::OrderEntry;
+use cex_engine::domains::cex::engine::Engine;
 
 /// 테스트: 엔진 재시작 후 오더북 복원
 /// 
@@ -44,7 +44,7 @@ async fn test_orderbook_recovery_after_restart() {
     engine.stop().await.expect("Failed to stop engine");
     
     // 엔진 재시작
-    let mut engine2 = cex_backend::domains::cex::engine::runtime::HighPerformanceEngine::new(db.clone());
+    let mut engine2 = cex_engine::domains::cex::engine::runtime::HighPerformanceEngine::new(db.clone());
     engine2.start().await.expect("Failed to restart engine");
     
     // 오더북 복원 확인
@@ -94,7 +94,7 @@ async fn test_balance_recovery_after_restart() {
     engine.stop().await.expect("Failed to stop engine");
     
     // 엔진 재시작
-    let mut engine2 = cex_backend::domains::cex::engine::runtime::HighPerformanceEngine::new(db.clone());
+    let mut engine2 = cex_engine::domains::cex::engine::runtime::HighPerformanceEngine::new(db.clone());
     engine2.start().await.expect("Failed to restart engine");
     
     // 잔고 복원 확인
@@ -164,7 +164,7 @@ async fn test_partial_fill_crash_recovery() {
     engine.stop().await.expect("Failed to stop engine");
     
     // 엔진 재시작
-    let mut engine2 = cex_backend::domains::cex::engine::runtime::HighPerformanceEngine::new(db.clone());
+    let mut engine2 = cex_engine::domains::cex::engine::runtime::HighPerformanceEngine::new(db.clone());
     engine2.start().await.expect("Failed to restart engine");
     
     // 체결된 부분은 유지되고, 미체결 부분은 재반영되지 않는지 확인
@@ -204,7 +204,7 @@ async fn test_cancel_crash_recovery() {
     assert!(submit_result.is_ok(), "Failed to submit order: {:?}", submit_result.err());
     
     // 주문 취소
-    let trading_pair = cex_backend::domains::cex::engine::types::TradingPair {
+    let trading_pair = cex_engine::domains::cex::engine::types::TradingPair {
         base_mint: "SOL".to_string(),
         quote_mint: "USDT".to_string(),
     };
@@ -218,7 +218,7 @@ async fn test_cancel_crash_recovery() {
     engine.stop().await.expect("Failed to stop engine");
     
     // 엔진 재시작
-    let mut engine2 = cex_backend::domains::cex::engine::runtime::HighPerformanceEngine::new(db.clone());
+    let mut engine2 = cex_engine::domains::cex::engine::runtime::HighPerformanceEngine::new(db.clone());
     engine2.start().await.expect("Failed to restart engine");
     
     // 취소 상태가 유지되고 잔고가 언락되었는지 확인

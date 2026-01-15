@@ -6,8 +6,8 @@ mod common;
 use common::*;
 use rust_decimal::Decimal;
 use chrono::Utc;
-use cex_backend::domains::cex::engine::types::{OrderEntry, TradingPair};
-use cex_backend::domains::cex::engine::Engine;
+use cex_engine::domains::cex::engine::types::{OrderEntry, TradingPair};
+use cex_engine::domains::cex::engine::Engine;
 
 /// 테스트: get_orderbook() 정상 동작
 /// 

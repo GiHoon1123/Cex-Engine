@@ -18,10 +18,10 @@
 // =====================================================
 
 use rust_decimal::Decimal;
-use cex_backend::shared::database::Database;
-use cex_backend::domains::cex::engine::runtime::HighPerformanceEngine;
-use cex_backend::domains::cex::engine::types::OrderEntry;
-use cex_backend::domains::cex::engine::Engine;
+use cex_engine::shared::database::Database;
+use cex_engine::domains::cex::engine::runtime::HighPerformanceEngine;
+use cex_engine::domains::cex::engine::types::OrderEntry;
+use cex_engine::domains::cex::engine::Engine;
 
 // 테스트용 상수
 pub const TEST_DATABASE_URL: &str = "postgresql://root:1234@localhost/cex_test";

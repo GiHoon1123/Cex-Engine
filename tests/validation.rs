@@ -6,8 +6,8 @@ mod common;
 use common::*;
 use rust_decimal::Decimal;
 use chrono::Utc;
-use cex_backend::domains::cex::engine::types::OrderEntry;
-use cex_backend::domains::cex::engine::Engine;
+use cex_engine::domains::cex::engine::types::OrderEntry;
+use cex_engine::domains::cex::engine::Engine;
 
 /// 테스트: 잔고 부족 → 주문 실패 (lock 하지 않아야 함)
 /// 
@@ -150,7 +150,7 @@ async fn test_market_order_zero_amount_fails() {
 async fn test_cancel_nonexistent_order_fails() {
     let (mut engine, db) = setup_test().await;
     
-    let trading_pair = cex_backend::domains::cex::engine::types::TradingPair {
+    let trading_pair = cex_engine::domains::cex::engine::types::TradingPair {
         base_mint: "SOL".to_string(),
         quote_mint: "USDT".to_string(),
     };

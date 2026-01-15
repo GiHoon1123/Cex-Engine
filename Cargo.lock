@@ -1037,7 +1037,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "cex-backend"
+name = "cex-engine"
 version = "0.1.0"
 dependencies = [
  "anchor-client",

@@ -6,8 +6,8 @@ mod common;
 use common::*;
 use rust_decimal::Decimal;
 use chrono::Utc;
-use cex_backend::domains::cex::engine::types::{OrderEntry, TradingPair};
-use cex_backend::domains::cex::engine::Engine;
+use cex_engine::domains::cex::engine::types::{OrderEntry, TradingPair};
+use cex_engine::domains::cex::engine::Engine;
 
 /// 테스트: 여러 지정가 주문 → 하나의 시장가 처리
 /// 

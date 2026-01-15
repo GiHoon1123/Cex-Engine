@@ -84,8 +84,8 @@ jobs:
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
         with:
-          name: cex-backend-binary
-          path: target/x86_64-unknown-linux-gnu/release/cex-backend
+          name: cex-engine-binary
+          path: target/x86_64-unknown-linux-gnu/release/cex-engine
           retention-days: 7
   
   deploy:
@@ -123,8 +123,8 @@ jobs:
             IMAGE_NAME_LOWER=$(echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
             
             # 기존 컨테이너 중지 및 제거
-            docker stop cex-backend 2>/dev/null || true
-            docker rm cex-backend 2>/dev/null || true
+            docker stop cex-engine 2>/dev/null || true
+            docker rm cex-engine 2>/dev/null || true
             
             # 사용자 정의 네트워크 생성 (없으면 생성)
             docker network create cex-network 2>/dev/null || true
@@ -140,7 +140,7 @@ jobs:
             # CPU/메모리 제한 없음 → 서버의 모든 리소스 사용
             # 애플리케이션 레벨에서 엔진 스레드만 Core 0에 고정 (코드에서 처리)
             docker run -d \
-              --name cex-backend \
+              --name cex-engine \
               --restart unless-stopped \
               --network cex-network \
               -p 3002:3002 \
@@ -158,5 +158,5 @@ jobs:
             # 컨테이너 상태 확인
             sleep 5
             docker ps
-            docker logs --tail=50 cex-backend
+            docker logs --tail=50 cex-engine
 

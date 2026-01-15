@@ -6,8 +6,8 @@ mod common;
 use common::*;
 use rust_decimal::Decimal;
 use chrono::Utc;
-use cex_backend::domains::cex::engine::types::OrderEntry;
-use cex_backend::domains::cex::engine::Engine;
+use cex_engine::domains::cex::engine::types::OrderEntry;
+use cex_engine::domains::cex::engine::Engine;
 
 /// 테스트: 지정가 ↔ 지정가 Self-Trade 방지
 /// 
@@ -62,7 +62,7 @@ async fn test_self_trade_prevention_limit_orders() {
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     
     // Self-Trade 방지: 두 주문이 모두 오더북에 남아있어야 함 (체결되지 않음)
-    let trading_pair = cex_backend::domains::cex::engine::types::TradingPair {
+    let trading_pair = cex_engine::domains::cex::engine::types::TradingPair {
         base_mint: "SOL".to_string(),
         quote_mint: "USDT".to_string(),
     };

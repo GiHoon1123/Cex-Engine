@@ -38,7 +38,7 @@ impl AppState {
     pub fn new(db: Database) -> Result<Self> {
         // 1. 공유 서비스 생성 (JWT 등)
         // JWT_SECRET 하드코딩 (배포 서버용)
-        let jwt_secret = "cex-backend-jwt-secret-key-2024-production".to_string();
+        let jwt_secret = "cex-engine-jwt-secret-key-2024-production".to_string();
         let jwt_service = JwtService::new(jwt_secret);
 
         // 2. 각 도메인 State 생성

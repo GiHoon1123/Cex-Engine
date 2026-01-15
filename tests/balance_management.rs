@@ -5,7 +5,7 @@
 mod common;
 use common::*;
 use rust_decimal::Decimal;
-use cex_backend::domains::cex::engine::Engine;
+use cex_engine::domains::cex::engine::Engine;
 
 /// 테스트: 엔진 시작 및 중지
 /// 
@@ -188,7 +188,7 @@ async fn test_balance_update_priority() {
                 "Deposit should be processed immediately");
     
     // 입금 후 주문 제출 (입금이 처리되어야 주문 가능)
-    use cex_backend::domains::cex::engine::types::OrderEntry;
+    use cex_engine::domains::cex::engine::types::OrderEntry;
     use chrono::Utc;
     
     let order = OrderEntry {

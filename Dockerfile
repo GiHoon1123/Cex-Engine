@@ -35,7 +35,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # 바이너리 복사
-COPY --from=builder /app/target/release/cex-backend /usr/local/bin/cex-backend
+COPY --from=builder /app/target/release/cex-engine /usr/local/bin/cex-engine
 
 # 환경 변수
 ENV RUST_ENV=prod
@@ -51,5 +51,5 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 # 실행
 # 주의: 코어 고정 및 실시간 스케줄링을 위해
 # docker-compose.yml에서 cpuset_cpus와 cap_add 설정 필요
-CMD ["cex-backend"]
+CMD ["cex-engine"]
 

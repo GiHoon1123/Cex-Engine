@@ -16,6 +16,8 @@ pub mod balance_commands;
 pub mod engine;
 pub mod threads;
 pub mod db_commands;
+#[cfg(any(test, feature = "bench_mode"))]
+pub mod bench_engine;
 
 pub use engine::HighPerformanceEngine;
 pub use config::CoreConfig;
