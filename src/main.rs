@@ -326,20 +326,20 @@ async fn main() {
         // 개발 환경: localhost만 허용
         CorsLayer::new()
             .allow_origin(AllowOrigin::exact("http://localhost:3003".parse().unwrap()))
-            .allow_methods([
-                Method::GET,
-                Method::POST,
-                Method::PUT,
-                Method::DELETE,
-                Method::OPTIONS,
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
                 Method::PATCH,
-            ])
-            .allow_headers([
-                axum::http::header::CONTENT_TYPE,
-                axum::http::header::AUTHORIZATION,
-                axum::http::header::ACCEPT,
+        ])
+        .allow_headers([
+            axum::http::header::CONTENT_TYPE,
+            axum::http::header::AUTHORIZATION,
+            axum::http::header::ACCEPT,
                 axum::http::header::ORIGIN,
-            ])
+        ])
             .allow_credentials(true)
             .expose_headers([
                 axum::http::header::CONTENT_TYPE,
