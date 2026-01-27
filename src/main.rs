@@ -280,18 +280,19 @@ async fn main() {
     eprintln!("[Main] Bot orderbook synchronization started");
     
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 봇 데이터 정리 스케줄러 설정 및 시작
+    // 봇 데이터 정리 스케줄러 설정 및 시작 (비활성화됨)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    eprintln!("[Main] Setting up bot cleanup scheduler...");
-    {
-        let bot1_user_id = bot_manager.bot1_user_id();
-        let bot2_user_id = bot_manager.bot2_user_id();
-        
-        // AppState에 스케줄러 설정 및 시작
-        app_state.setup_bot_cleanup_scheduler(bot1_user_id, bot2_user_id);
-        
-        eprintln!("[Main] Bot cleanup scheduler started (disabled by default, use API to enable)");
-    }
+    // eprintln!("[Main] Setting up bot cleanup scheduler...");
+    // {
+    //     let bot1_user_id = bot_manager.bot1_user_id();
+    //     let bot2_user_id = bot_manager.bot2_user_id();
+    //     
+    //     // AppState에 스케줄러 설정 및 시작
+    //     app_state.setup_bot_cleanup_scheduler(bot1_user_id, bot2_user_id);
+    //     
+    //     eprintln!("[Main] Bot cleanup scheduler started (disabled by default, use API to enable)");
+    // }
+    eprintln!("[Main] Bot cleanup scheduler disabled (batch job not running)");
 
     // CORS 설정
     // 개발 환경: localhost 허용, 프로덕션: 모든 origin 허용 (또는 특정 도메인만)
@@ -351,7 +352,7 @@ async fn main() {
     let app = Router::new()
         .merge(create_router())
         .merge(
-            SwaggerUi::new("/api")
+            SwaggerUi::new("/swagger-ui")
                 .url("/api-docs/openapi.json", ApiDoc::openapi())
         )
         .layer(cors)
