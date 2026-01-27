@@ -69,8 +69,9 @@ CREATE TABLE IF NOT EXISTS orders (
     -- - 'partial': 부분 체결 (일부만 체결됨)
     -- - 'filled': 전량 체결 완료
     -- - 'cancelled': 주문 취소됨
+    -- - 'rejected': 주문 거부됨 (엔진 통신 실패 또는 엔진 거부)
     status VARCHAR(50) NOT NULL DEFAULT 'pending' 
-        CHECK (status IN ('pending', 'partial', 'filled', 'cancelled')),
+        CHECK (status IN ('pending', 'partial', 'filled', 'cancelled', 'rejected')),
     
     -- 타임스탬프
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),  -- 주문 생성 시간
@@ -91,7 +92,7 @@ COMMENT ON COLUMN orders.price IS '지정가 가격 (USDT 기준, 시장가 주�
 COMMENT ON COLUMN orders.amount IS '주문 수량 (base_mint 기준, 예: SOL 1.0개)';
 COMMENT ON COLUMN orders.filled_amount IS '체결된 수량 (부분 체결 가능, amount와 같으면 전량 체결)';
 COMMENT ON COLUMN orders.filled_quote_amount IS '체결된 금액 (USDT 기준, 시장가 주문의 총 결제 금액)';
-COMMENT ON COLUMN orders.status IS '주문 상태: pending(대기), partial(부분체결), filled(완료), cancelled(취소)';
+COMMENT ON COLUMN orders.status IS '주문 상태: pending(대기), partial(부분체결), filled(완료), cancelled(취소), rejected(거부)';
 COMMENT ON COLUMN orders.created_at IS '주문 생성 시간';
 COMMENT ON COLUMN orders.updated_at IS '주문 정보 마지막 업데이트 시간';
 
