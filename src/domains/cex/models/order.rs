@@ -129,6 +129,11 @@ pub struct Order {
 #[derive(Debug, Deserialize, ToSchema)]
 #[schema(as = CreateOrderRequest)]
 pub struct CreateOrderRequest {
+    /// User ID (from Java API, no authentication required)
+    /// 사용자 ID (Java API에서 전달, 인증 불필요)
+    #[schema(example = "1")]
+    pub user_id: u64,
+
     /// Order type: 'buy' or 'sell'
     /// 주문 유형: 'buy' (매수) 또는 'sell' (매도)
     #[schema(example = "buy")]

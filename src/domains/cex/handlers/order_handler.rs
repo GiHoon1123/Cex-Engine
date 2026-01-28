@@ -46,20 +46,16 @@ use utoipa::{ToSchema, IntoParams};
     responses(
         (status = 201, description = "Order created successfully", body = Order),
         (status = 400, description = "Bad request (invalid order parameters)"),
-        (status = 401, description = "Unauthorized (authentication required)"),
         (status = 500, description = "Internal server error")
     ),
-    tag = "CEX Orders",
-    security(
-        ("BearerAuth" = [])
-    )
+    tag = "CEX Orders"
 )]
 pub async fn create_order(
     State(app_state): State<AppState>,
-    AuthenticatedUser { user_id, .. }: AuthenticatedUser,
     Json(request): Json<CreateOrderRequest>,
 ) -> Result<(StatusCode, Json<Order>), (StatusCode, Json<serde_json::Value>)> {
-    // Service 호출
+    // Service 호출 (user_id는 요청 본문에서 가져옴)
+    let user_id = request.user_id;
     let order = app_state
         .cex_state
         .order_service
@@ -97,24 +93,42 @@ pub async fn create_order(
     delete,
     path = "/api/cex/orders/{order_id}",
     params(
-        ("order_id" = u64, Path, description = "Order ID to cancel")
+        ("order_id" = u64, Path, description = "Order ID to cancel"),
+        ("user_id" = u64, Query, description = "User ID")
     ),
     responses(
         (status = 200, description = "Order cancelled successfully", body = Order),
-        (status = 401, description = "Unauthorized (not your order)"),
         (status = 404, description = "Order not found"),
         (status = 500, description = "Internal server error")
     ),
-    tag = "CEX Orders",
-    security(
-        ("BearerAuth" = [])
-    )
+    tag = "CEX Orders"
 )]
 pub async fn cancel_order(
     State(app_state): State<AppState>,
-    AuthenticatedUser { user_id, .. }: AuthenticatedUser,
     Path(order_id): Path<u64>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Order>, (StatusCode, Json<serde_json::Value>)> {
+    // user_id를 쿼리 파라미터에서 가져옴
+    let user_id = params
+        .get("user_id")
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "Missing user_id query parameter"
+                })),
+            )
+        })?
+        .parse::<u64>()
+        .map_err(|_| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "Invalid user_id format"
+                })),
+            )
+        })?;
+    
     // Service 호출
     let order = app_state
         .cex_state

@@ -36,57 +36,37 @@ use super::handlers;
 pub fn create_cex_router() -> Router<AppState> {
     Router::new()
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // Orders (주문)
+        // Orders (주문) - 주문 생성/취소만 활성화
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
         // 주문 생성
         .route("/orders", post(handlers::create_order))
         
-        // 주문 취소 & 조회
-        .route("/orders/:order_id",
-            delete(handlers::cancel_order)
-                .get(handlers::get_order)
-        )
+        // 주문 취소
+        .route("/orders/:order_id", delete(handlers::cancel_order))
         
-        // 내 주문 목록 (주의: /orders/my가 /orders/:order_id보다 먼저 와야 함!)
-        .route("/orders/my", get(handlers::get_my_orders))
-        
-        // 오더북 조회
-        .route("/orderbook", get(handlers::get_orderbook))
+        // 나머지 주문 관련 엔드포인트 주석 처리
+        // .route("/orders/:order_id", get(handlers::get_order))
+        // .route("/orders/my", get(handlers::get_my_orders))
+        // .route("/orderbook", get(handlers::get_orderbook))
         
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // Trades (체결)
+        // Trades (체결) - 주석 처리
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        
-        // 거래쌍별 체결 내역
-        .route("/trades", get(handlers::get_trades))
-        
-        // 내 체결 내역
-        .route("/trades/my", get(handlers::get_my_trades))
-        
-        // 최근 체결 가격
-        .route("/price", get(handlers::get_latest_price))
-        
-        // 24시간 거래량
-        .route("/volume", get(handlers::get_24h_volume))
+        // .route("/trades", get(handlers::get_trades))
+        // .route("/trades/my", get(handlers::get_my_trades))
+        // .route("/price", get(handlers::get_latest_price))
+        // .route("/volume", get(handlers::get_24h_volume))
         
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // Balances (잔고)
+        // Balances (잔고) - 주석 처리
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        
-        // 내 잔고 조회
-        .route("/balances", get(handlers::get_all_balances))
-        
-        // 특정 자산 잔고 조회
-        .route("/balances/:mint", get(handlers::get_balance))
+        // .route("/balances", get(handlers::get_all_balances))
+        // .route("/balances/:mint", get(handlers::get_balance))
         
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // Positions (포지션)
+        // Positions (포지션) - 주석 처리
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        
-        // 모든 자산 포지션 조회
-        .route("/positions", get(handlers::get_all_positions))
-        
-        // 특정 자산 포지션 조회
-        .route("/positions/:mint", get(handlers::get_position))
+        // .route("/positions", get(handlers::get_all_positions))
+        // .route("/positions/:mint", get(handlers::get_position))
 }

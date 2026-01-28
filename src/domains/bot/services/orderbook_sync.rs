@@ -272,6 +272,7 @@ impl OrderbookSync {
     ) -> Result<Option<crate::domains::cex::models::order::Order>> {
         // 주문 생성 요청
         let request = CreateOrderRequest {
+            user_id, // user_id 추가
             order_type: order_type.to_string(),
             order_side: "limit".to_string(), // 항상 지정가
             base_mint: "SOL".to_string(),
