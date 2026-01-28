@@ -59,8 +59,12 @@ pub fn create_cex_router() -> Router<AppState> {
         // .route("/volume", get(handlers::get_24h_volume))
         
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // Balances (잔고) - 주석 처리
+        // Balances (잔고)
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 잔고 동기화 (Java API 서버에서 호출)
+        .route("/balances/sync", post(handlers::sync_balance))
+        
+        // 나머지 잔고 관련 엔드포인트 주석 처리
         // .route("/balances", get(handlers::get_all_balances))
         // .route("/balances/:mint", get(handlers::get_balance))
         
