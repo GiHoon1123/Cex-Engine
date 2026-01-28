@@ -196,6 +196,8 @@ pub fn engine_thread_loop(
                 // 명령 처리
                 match cmd {
                     OrderCommand::SubmitOrder { order, response } => {
+                        eprintln!("[Engine Thread] OrderCommand::SubmitOrder 수신: order_id={}, user_id={}, order_type={}, order_side={}, price={:?}, amount={}", 
+                                 order.id, order.user_id, order.order_type, order.order_side, order.price, order.amount);
                         handle_submit_order(
                             order,
                             response,
@@ -386,7 +388,10 @@ fn handle_submit_order(
     matcher: &Arc<Matcher>,
     executor: &Arc<Mutex<Executor>>,
 ) {
+    eprintln!("[Engine Thread] handle_submit_order 호출: order_id={}, user_id={}, order_type={}, order_side={}, price={:?}, amount={}", 
+             order.id, order.user_id, order.order_type, order.order_side, order.price, order.amount);
     let result = process_submit_order(order, wal_tx, db_tx, kafka_producer, orderbooks, matcher, executor);
+    eprintln!("[Engine Thread] handle_submit_order 완료: matches_count={}", result.as_ref().map(|m| m.len()).unwrap_or(0));
     
     // response가 Some인 경우만 응답 전송 (비동기 처리 시 None)
     if let Some(tx) = response {
@@ -403,8 +408,11 @@ pub(crate) fn process_submit_order(
     matcher: &Arc<Matcher>,
     executor: &Arc<Mutex<Executor>>,
 ) -> Result<Vec<MatchResult>> {
+    eprintln!("[Engine Thread] process_submit_order 시작: order_id={}, user_id={}, order_type={}, order_side={}, price={:?}, amount={}", 
+             order.id, order.user_id, order.order_type, order.order_side, order.price, order.amount);
     // 1. TradingPair 찾기
     let pair = TradingPair::new(order.base_mint.clone(), order.quote_mint.clone());
+    eprintln!("[Engine Thread] TradingPair 생성: base_mint={}, quote_mint={}", order.base_mint, order.quote_mint);
     
     // 2. 잔고 잠금 (주문 제출 전에 잠금)
     {
@@ -475,10 +483,16 @@ pub(crate) fn process_submit_order(
     }
     */
     
-    // 3-1. 주문을 DB에 저장 (배치로 처리됨, trade insert 전에 필요 - 외래키 제약)
+    // 3-1. 주문을 DB에 저장 (주석 처리됨)
+    // Java API에서 이미 주문을 저장했으므로, Rust 엔진은 주문을 다시 저장하지 않음
+    // 모든 주문은 Java API를 통해 생성되므로, Rust 엔진의 InsertOrder는 불필요함
+    
+    // 시장가 주문 여부 확인 (다른 곳에서 사용됨)
+    let is_market_order = order.order_side == "market";
+    
+    /*
     // 주문 ID는 DB Writer가 INSERT 시 auto increment로 생성됨
     // 시장가 주문은 처음에 InsertOrder를 보내지 않고, 모든 처리가 끝난 후 최종 상태로 한 번만 전송
-    let is_market_order = order.order_side == "market";
     if !is_market_order {
         // 지정가 주문만 처음에 InsertOrder 전송 (pending 상태)
     if let Some(tx) = db_tx {
@@ -499,6 +513,7 @@ pub(crate) fn process_submit_order(
             let _ = tx.send(db_cmd); // Non-blocking, 배치로 처리됨
         }
     }
+    */
     
     // 4. 시장가 주문 여부 및 초기 잔고 잠금 정보 저장 (order 이동 전)
     let initial_quote_amount = order.quote_amount;
@@ -510,7 +525,16 @@ pub(crate) fn process_submit_order(
         let orderbook = orderbooks_guard.entry(pair.clone()).or_insert_with(|| OrderBook::new(pair.clone()));
         
         // 6. Matcher로 매칭 시도 (먼저 매칭 시도)
+        eprintln!("[Engine Thread] 매칭 시작: order_id={}, order_type={}, order_side={}, price={:?}, amount={}, user_id={}", 
+                 order.id, order.order_type, order.order_side, order.price, order.amount, order.user_id);
         let matches = matcher.match_order(&mut order, orderbook);
+        eprintln!("[Engine Thread] 매칭 완료: order_id={}, matches_count={}", order.id, matches.len());
+        if !matches.is_empty() {
+            for (idx, m) in matches.iter().enumerate() {
+                eprintln!("[Engine Thread] 매칭 {}: buy_order_id={}, sell_order_id={}, price={}, amount={}, buyer_id={}, seller_id={}", 
+                         idx, m.buy_order_id, m.sell_order_id, m.price, m.amount, m.buyer_id, m.seller_id);
+            }
+        }
         
         // 7. 매칭 후 남은 주문이 있으면 OrderBook에 추가
         // 시장가 주문은 완전히 체결되지 않으면 오더북에 추가하지 않음 (시장가 주문은 즉시 체결되어야 함)
@@ -540,7 +564,6 @@ pub(crate) fn process_submit_order(
     if is_market_order {
         use std::collections::HashMap;
         use chrono::Utc;
-        use crate::shared::utils::id_generator::TradeIdGenerator;
         
         // 디버깅: 매칭 결과 확인
         eprintln!("[Market Order Debug] order_id={}, initial_matches={}, remaining_quote_amount={:?}, remaining_amount={}", 
@@ -654,39 +677,26 @@ pub(crate) fn process_submit_order(
                 entry.1 -= unlock_amount; // locked 감소
             }
             
-            // 1. InsertTrade 명령 전송 및 Kafka 이벤트 발행 (모든 매칭)
+            // 1. Kafka 이벤트 발행 (모든 매칭)
+            // Trade는 Java DB에서 저장하므로 Rust에서는 DB 명령 전송하지 않음
+            // trade_id는 Java DB에서 auto increment로 생성되므로 Rust에서 보내지 않음
             for match_result in &matches {
-                let trade_id = TradeIdGenerator::next();
-                let db_cmd = super::db_commands::DbCommand::InsertTrade {
-                    trade_id,
-                    buy_order_id: match_result.buy_order_id,
-                    sell_order_id: match_result.sell_order_id,
-                    buyer_id: match_result.buyer_id,
-                    seller_id: match_result.seller_id,
-                    price: match_result.price,
-                    amount: match_result.amount,
-                    base_mint: match_result.base_mint.clone(),
-                    quote_mint: match_result.quote_mint.clone(),
-                    timestamp: Utc::now(),
-                };
-                if let Err(e) = tx.send(db_cmd) {
-                    eprintln!("Failed to send InsertTrade command: {}", e);
-                }
-                
                 // Kafka 이벤트 발행 (비동기, 논블로킹)
                 // 엔진 스레드는 일반 스레드이므로 tokio 런타임을 생성해야 함
                 if let Some(kafka_producer_ref) = kafka_producer {
                     let kafka_producer_clone = kafka_producer_ref.clone();
                     let match_result_clone = match_result.clone();
-                    let base_mint_clone = match_result.base_mint.clone();
                     
                     // 별도 스레드에서 tokio 런타임 생성하여 Kafka 발행
                     std::thread::spawn(move || {
                         let rt = tokio::runtime::Runtime::new().unwrap();
                         rt.block_on(async move {
+                            eprintln!("[Engine Thread] TradeExecutedEvent 생성 전: buy_order_id={}, sell_order_id={}, buyer_id={}, seller_id={}", 
+                                     match_result_clone.buy_order_id, match_result_clone.sell_order_id, 
+                                     match_result_clone.buyer_id, match_result_clone.seller_id);
+                            
                             let event = TradeExecutedEvent {
                                 event_type: "trade_executed".to_string(),
-                                trade_id,
                                 buy_order_id: match_result_clone.buy_order_id,
                                 sell_order_id: match_result_clone.sell_order_id,
                                 buyer_id: match_result_clone.buyer_id,
@@ -698,14 +708,26 @@ pub(crate) fn process_submit_order(
                                 timestamp: Utc::now(),
                             };
                             
-                            if let Err(e) = kafka_producer_clone.publish_trade_executed(&base_mint_clone, &event).await {
-                                eprintln!("[Kafka] Failed to publish trade executed event: {}", e);
+                            eprintln!("[Engine Thread] trade_executed 이벤트 발행 시도: buy_order_id={}, sell_order_id={}", 
+                                     match_result_clone.buy_order_id, match_result_clone.sell_order_id);
+                            match kafka_producer_clone.publish_trade_executed(&event).await {
+                                Ok(_) => {
+                                    eprintln!("[Engine Thread] trade_executed 이벤트 발행 성공: buy_order_id={}, sell_order_id={}", 
+                                             match_result_clone.buy_order_id, match_result_clone.sell_order_id);
+                                }
+                                Err(e) => {
+                                    eprintln!("[Engine Thread] Failed to publish trade executed event: buy_order_id={}, sell_order_id={}, error={}", 
+                                             match_result_clone.buy_order_id, match_result_clone.sell_order_id, e);
+                                }
                             }
                         });
                     });
                 }
             }
             
+            // [비활성화] Java 서버가 잔고의 Source of Truth가 되므로 엔진에서 DB 업데이트 비활성화
+            // 잔고 업데이트는 Kafka 이벤트를 통해 Java Consumer가 처리합니다.
+            /*
             // 2. UpdateBalance 명령 전송 (집계된 잔고 변경)
             for ((user_id, mint), (available_delta, locked_delta)) in balance_changes {
                 // delta가 0이 아닌 경우만 전송
@@ -721,8 +743,11 @@ pub(crate) fn process_submit_order(
                     }
                 }
             }
+            */
             
-            // 3. 시장가 주문을 최종 상태로 InsertOrder 한 번만 전송
+            // 3. 시장가 주문을 최종 상태로 InsertOrder 한 번만 전송 (주석 처리됨)
+            // Java API에서 이미 주문을 저장했으므로, Rust 엔진은 주문을 다시 저장하지 않음
+            /*
             let total_filled_amount: Decimal = matches.iter()
                 .map(|m| m.amount)
                 .sum();
@@ -754,9 +779,10 @@ pub(crate) fn process_submit_order(
             if let Err(e) = tx.send(db_cmd) {
                 eprintln!(
                     "[Order Submit] Failed to send InsertOrder command for market order {}: {}",
-                    order_after_match.id, e
+                    order_after_match.id, e,
                 );
             }
+            */
         }
         
         // 시장가 주문 처리 완료 (IOC 방식: 체결되면 filled, 안 되면 cancelled)
@@ -779,26 +805,26 @@ pub(crate) fn process_submit_order(
     // 8-0. 지정가 주문 체결 시 Kafka 이벤트 발행 (모든 매칭)
     // 시장가 주문과 동일하게 각 매칭마다 trade_executed 이벤트 발행
     if !is_market_order && !matches.is_empty() {
-        use crate::shared::utils::id_generator::TradeIdGenerator;
         use chrono::Utc;
         
         for match_result in &matches {
-            let trade_id = TradeIdGenerator::next();
-            
             // Kafka 이벤트 발행 (비동기, 논블로킹)
             // 엔진 스레드는 일반 스레드이므로 tokio 런타임을 생성해야 함
+            // trade_id는 Java DB에서 auto increment로 생성되므로 Rust에서 보내지 않음
             if let Some(kafka_producer_ref) = kafka_producer {
                 let kafka_producer_clone = kafka_producer_ref.clone();
                 let match_result_clone = match_result.clone();
-                let base_mint_clone = match_result.base_mint.clone();
                 
                 // 별도 스레드에서 tokio 런타임 생성하여 Kafka 발행
                 std::thread::spawn(move || {
                     let rt = tokio::runtime::Runtime::new().unwrap();
                     rt.block_on(async move {
+                        eprintln!("[Engine Thread] TradeExecutedEvent 생성 전 (limit order): buy_order_id={}, sell_order_id={}, buyer_id={}, seller_id={}", 
+                                 match_result_clone.buy_order_id, match_result_clone.sell_order_id,
+                                 match_result_clone.buyer_id, match_result_clone.seller_id);
+                        
                         let event = TradeExecutedEvent {
                             event_type: "trade_executed".to_string(),
-                            trade_id,
                             buy_order_id: match_result_clone.buy_order_id,
                             sell_order_id: match_result_clone.sell_order_id,
                             buyer_id: match_result_clone.buyer_id,
@@ -810,8 +836,17 @@ pub(crate) fn process_submit_order(
                             timestamp: Utc::now(),
                         };
                         
-                        if let Err(e) = kafka_producer_clone.publish_trade_executed(&base_mint_clone, &event).await {
-                            eprintln!("[Kafka] Failed to publish trade executed event: {}", e);
+                        eprintln!("[Engine Thread] trade_executed 이벤트 발행 시도 (limit order): buy_order_id={}, sell_order_id={}", 
+                                 match_result_clone.buy_order_id, match_result_clone.sell_order_id);
+                        match kafka_producer_clone.publish_trade_executed(&event).await {
+                            Ok(_) => {
+                                eprintln!("[Engine Thread] trade_executed 이벤트 발행 성공 (limit order): buy_order_id={}, sell_order_id={}", 
+                                         match_result_clone.buy_order_id, match_result_clone.sell_order_id);
+                            }
+                            Err(e) => {
+                                eprintln!("[Engine Thread] Failed to publish trade executed event (limit order): buy_order_id={}, sell_order_id={}, error={}", 
+                                         match_result_clone.buy_order_id, match_result_clone.sell_order_id, e);
+                            }
                         }
                     });
                 });
@@ -921,6 +956,9 @@ pub(crate) fn process_submit_order(
                     order_after_match.id, order_after_match.user_id, unlock_mint, unlock_amount, e
                 );
             } else {
+                // [비활성화] Java 서버가 잔고의 Source of Truth가 되므로 엔진에서 DB 업데이트 비활성화
+                // 잔고 업데이트는 Kafka 이벤트를 통해 Java Consumer가 처리합니다.
+                /*
                 // Unlock 성공 시 DB Writer로 잔고 업데이트 명령 전송
                 // 남은 locked를 available로 이동 (available 증가, locked 감소)
                 if let Some(tx) = db_tx {
@@ -937,6 +975,7 @@ pub(crate) fn process_submit_order(
                         );
                     }
                 }
+                */
             }
         }
         
@@ -1141,12 +1180,12 @@ fn handle_cancel_order(
                     event_type: "order_cancelled".to_string(),
                     order_id,
                     user_id,
-                    base_mint: base_mint_clone.clone(),
+                    base_mint: base_mint_clone,
                     quote_mint: quote_mint_clone,
                     timestamp: Utc::now(),
                 };
                 
-                if let Err(e) = kafka_producer_clone.publish_order_cancelled(&base_mint_clone, &event).await {
+                if let Err(e) = kafka_producer_clone.publish_order_cancelled(&event).await {
                     eprintln!("[Kafka] Failed to publish order cancelled event: {}", e);
                 }
             });
@@ -1261,6 +1300,9 @@ fn handle_lock_balance(
     // 잔고 잠금
     match executor.lock_balance_for_order(0, user_id, &mint, amount) {
         Ok(()) => {
+            // [비활성화] Java 서버가 잔고의 Source of Truth가 되므로 엔진에서 DB 업데이트 비활성화
+            // 잔고 업데이트는 Kafka 이벤트를 통해 Java Consumer가 처리합니다.
+            /*
             // DB Writer로 잔고 업데이트 명령 전송 (available 감소, locked 증가)
             if let Some(tx) = db_tx {
                 let db_cmd = super::db_commands::DbCommand::UpdateBalance {
@@ -1271,6 +1313,7 @@ fn handle_lock_balance(
                 };
                 let _ = tx.send(db_cmd);
             }
+            */
             
             let _ = response.send(Ok(()));
         }
@@ -1308,6 +1351,9 @@ fn handle_unlock_balance(
     // 잔고 잠금 해제
     match executor.unlock_balance_for_cancel(0, user_id, &mint, amount) {
         Ok(()) => {
+            // [비활성화] Java 서버가 잔고의 Source of Truth가 되므로 엔진에서 DB 업데이트 비활성화
+            // 잔고 업데이트는 Kafka 이벤트를 통해 Java Consumer가 처리합니다.
+            /*
             // DB Writer로 잔고 업데이트 명령 전송 (locked 감소, available 증가)
             if let Some(tx) = db_tx {
                 let db_cmd = super::db_commands::DbCommand::UpdateBalance {
@@ -1318,6 +1364,7 @@ fn handle_unlock_balance(
                 };
                 let _ = tx.send(db_cmd);
             }
+            */
             
             let _ = response.send(Ok(()));
         }
@@ -1363,8 +1410,8 @@ fn handle_update_balance(
     mint: String,
     available_delta: rust_decimal::Decimal,
     response: tokio::sync::oneshot::Sender<Result<()>>,
-    wal_tx: Option<&crossbeam::channel::Sender<WalEntry>>,
-    db_tx: Option<&crossbeam::channel::Sender<super::db_commands::DbCommand>>,
+    _wal_tx: Option<&crossbeam::channel::Sender<WalEntry>>,
+    _db_tx: Option<&crossbeam::channel::Sender<super::db_commands::DbCommand>>,
     executor: &Arc<Mutex<Executor>>,
 ) {
     // 1. BalanceCache에서 잔고 업데이트
@@ -1399,6 +1446,9 @@ fn handle_update_balance(
     }
     */
     
+    // [비활성화] Java 서버가 잔고의 Source of Truth가 되므로 엔진에서 DB 업데이트 비활성화
+    // 잔고 업데이트는 Kafka 이벤트를 통해 Java Consumer가 처리합니다.
+    /*
     // 3. DB 명령 전송 (UpdateBalance)
     // DB Writer 스레드가 배치로 처리 (100개 또는 10ms마다)
     if let Some(tx) = db_tx {
@@ -1410,6 +1460,7 @@ fn handle_update_balance(
         };
         let _ = tx.send(db_cmd);
     }
+    */
     
     // 4. 성공 결과 반환
     let _ = response.send(Ok(()));
@@ -1923,6 +1974,9 @@ async fn flush_batch(
         return Ok(());
     }
     
+    // [비활성화] Java 서버가 잔고의 Source of Truth가 되므로 엔진에서 DB 업데이트 비활성화
+    // 잔고 업데이트는 Kafka 이벤트를 통해 Java Consumer가 처리합니다.
+    /*
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 1. UpdateBalance 명령 집계 (Deadlock 확률 감소)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1930,11 +1984,13 @@ async fn flush_batch(
     // 한 번만 UPDATE 실행하도록 합니다.
     // 이렇게 하면 같은 행을 여러 번 업데이트하지 않아 Deadlock 확률이 감소합니다.
     let mut balance_updates: HashMap<(u64, String), (rust_decimal::Decimal, rust_decimal::Decimal)> = HashMap::new();
+    */
     let mut other_commands = Vec::new();
     
-    // 배치를 순회하면서 UpdateBalance 명령을 집계
+    // 배치를 순회하면서 UpdateBalance 명령을 필터링 (집계하지 않고 제거)
     for cmd in batch.iter() {
         match cmd {
+            /*
             DbCommand::UpdateBalance { user_id, mint, available_delta, locked_delta } => {
                 // 같은 (user_id, mint) 조합의 delta를 합산
                 let key = (*user_id, mint.clone());
@@ -1950,6 +2006,11 @@ async fn flush_batch(
                     entry.1 += *delta;
                 }
             }
+            */
+            DbCommand::UpdateBalance { .. } => {
+                // UpdateBalance 명령은 무시 (Java에서 처리)
+                continue;
+            }
             _ => {
                 // UpdateBalance가 아닌 명령은 그대로 유지
                 other_commands.push(cmd.clone());
@@ -1957,12 +2018,14 @@ async fn flush_batch(
         }
     }
     
-    // 집계된 UpdateBalance를 다른 명령과 합치기
+    // 집계된 UpdateBalance를 다른 명령과 합치기 (비활성화)
     let mut processed_batch = Vec::new();
     
     // 다른 명령들을 먼저 추가 (InsertOrder, UpdateOrderStatus, InsertTrade)
     processed_batch.extend(other_commands);
     
+    // [비활성화] UpdateBalance 명령은 Java에서 처리하므로 추가하지 않음
+    /*
     // 집계된 UpdateBalance를 마지막에 추가
     for ((user_id, mint), (total_available_delta, total_locked_delta)) in balance_updates {
         // delta가 0이 아닌 경우만 추가
@@ -1983,6 +2046,7 @@ async fn flush_batch(
             });
         }
     }
+    */
     
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 2. 배치 정렬 (외래키 제약조건을 위해)
@@ -1990,13 +2054,13 @@ async fn flush_batch(
     // 1. InsertOrder (주문 먼저 생성)
     // 2. UpdateOrderStatus (주문 상태 업데이트)
     // 3. InsertTrade (체결 내역 - 주문이 있어야 함)
-    // 4. UpdateBalance (잔고 업데이트)
+    // 4. UpdateBalance (잔고 업데이트) - [비활성화] Java에서 처리
     processed_batch.sort_by(|a, b| {
         let priority = |cmd: &DbCommand| match cmd {
             DbCommand::InsertOrder { .. } => 1,
             DbCommand::UpdateOrderStatus { .. } => 2,
             DbCommand::InsertTrade { .. } => 3,
-            DbCommand::UpdateBalance { .. } => 4,
+            DbCommand::UpdateBalance { .. } => 4, // [비활성화] 하지만 match 문에서는 처리 필요
         };
         priority(a).cmp(&priority(b))
     });
@@ -2129,14 +2193,6 @@ async fn process_db_command(
                 filled_amount,
                 filled_quote_amount,
             } => {
-                // ID 생성기로 생성한 ID를 사용 (auto increment 사용 안 함)
-                // order_id가 0이면 에러 (ID 생성기가 제대로 작동하지 않음)
-                if *order_id == 0 {
-                    return Err(anyhow::anyhow!(
-                        "Order ID is 0. ID generator may not be initialized properly."
-                    ));
-                }
-                
                 // 상태 및 체결 정보 (시장가 주문은 최종 상태로 전달됨)
                 let final_status = status.as_ref().map(|s| s.clone()).unwrap_or_else(|| "pending".to_string());
                 let final_filled_amount = filled_amount.unwrap_or(rust_decimal::Decimal::ZERO);
@@ -2217,104 +2273,17 @@ async fn process_db_command(
                 Ok(())
             }
             
-            DbCommand::InsertTrade {
-                trade_id,
-                buy_order_id,
-                sell_order_id,
-                buyer_id,
-                seller_id,
-                price,
-                amount,
-                base_mint,
-                quote_mint,
-                timestamp,
-            } => {
-                // buy_order_id, sell_order_id가 0이면 스킵 (주문이 아직 DB에 INSERT되지 않음)
-                if *buy_order_id == 0 || *sell_order_id == 0 {
-                    eprintln!(
-                        "[DB Writer] Skipping trade insert: buy_order_id={}, sell_order_id={} (orders not yet inserted)",
-                        buy_order_id, sell_order_id
-                    );
-                    // 스킵된 것으로 처리 (성공으로 간주)
-                    return Ok(());
-                }
-                
-                // ID 생성기로 생성한 trade_id 사용
-                // 외래키 제약조건 위반, 트랜잭션 abort, Deadlock 에러 처리
-                match sqlx::query(
-                    r#"
-                    INSERT INTO trades (
-                        id, buy_order_id, sell_order_id, buyer_id, seller_id,
-                        price, amount, base_mint, quote_mint, created_at
-                    )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                    ON CONFLICT (id) DO NOTHING
-                    "#
-                )
-                .bind(*trade_id as i64)
-                .bind(*buy_order_id as i64)
-                .bind(*sell_order_id as i64)
-                .bind(*buyer_id as i64)
-                .bind(*seller_id as i64)
-                .bind(price)
-                .bind(amount)
-                .bind(base_mint)
-                .bind(quote_mint)
-                .bind(timestamp)
-                .execute(&mut *tx)
-                .await
-                {
-                    Ok(_) => {
-                        // 성공적으로 삽입됨
-                        Ok(())
-                    }
-                    Err(sqlx::Error::Database(db_err)) => {
-                        // 에러 코드 확인
-                        let error_code = db_err.code().as_deref().map(|s| s.to_string());
-                        
-                        // Deadlock 에러 코드 40P01 체크
-                        if error_code.as_deref() == Some("40P01") {
-                            // Deadlock 발생 → 재시도 로직으로 전달
-                            return Err(anyhow::anyhow!("Deadlock detected: {}", db_err));
-                        }
-                        
-                        // 외래키 제약조건 위반 (23503) 또는 트랜잭션 abort (25P02)는 무시
-                        // 스케줄러가 orders를 삭제한 경우 발생할 수 있음
-                        if error_code.as_deref() == Some("23503") || error_code.as_deref() == Some("25P02") {
-                            // 조용히 무시 (로그 출력 안 함, 성공으로 간주)
-                            Ok(())
-                        } else {
-                            // 다른 DB 에러는 로그만 출력하고 계속 진행
-                            eprintln!("[DB Writer] Trade insert error (non-critical): trade_id={}, buy_order_id={}, sell_order_id={}, error={}", 
-                                     trade_id, buy_order_id, sell_order_id, db_err);
-                            Ok(())
-                        }
-                    }
-                    Err(e) => {
-                        // 다른 에러도 조용히 무시 (스케줄러 삭제로 인한 정상적인 상황)
-                        Ok(())
-                    }
-                }
+            // [비활성화] Java 서버가 Trade의 Source of Truth가 되므로 엔진에서 DB 저장 비활성화
+            // Trade는 Kafka 이벤트를 통해 Java Consumer가 저장합니다.
+            DbCommand::InsertTrade { .. } => {
+                // 아무것도 하지 않음 (Java에서 처리)
+                Ok(())
             }
             
-            DbCommand::UpdateBalance {
-                user_id,
-                mint,
-                available_delta,
-                locked_delta,
-            } => {
-                use crate::shared::database::repositories::cex::UserBalanceRepository;
-                use crate::domains::cex::models::balance::UserBalanceUpdate;
-                
-                let balance_repo = UserBalanceRepository::new(db_pool.clone());
-                let update = UserBalanceUpdate {
-                    available_delta: *available_delta,
-                    locked_delta: *locked_delta,
-                };
-                
-                balance_repo.update_balance(*user_id, mint, &update).await
-                    .context("Failed to update balance")?;
-                
+            // [비활성화] Java 서버가 잔고의 Source of Truth가 되므로 엔진에서 DB 업데이트 비활성화
+            // 잔고 업데이트는 Kafka 이벤트를 통해 Java Consumer가 처리합니다.
+            DbCommand::UpdateBalance { .. } => {
+                // 아무것도 하지 않음 (Java에서 처리)
                 Ok(())
             }
     }

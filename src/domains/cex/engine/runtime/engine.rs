@@ -443,20 +443,18 @@ impl HighPerformanceEngine {
     /// 엔진 시작 (내부 구현)
     /// 
     /// # 처리 과정
-    /// 1. DB에서 활성 주문 로드
-    /// 2. 메모리 오더북 구성
-    /// 3. DB에서 잔고 로드
-    /// 4. BalanceCache에 로드
-    /// 5. WAL 스레드 시작
-    /// 6. 엔진 스레드 시작
+    /// 1. 메모리 오더북 구성
+    /// 2. DB에서 잔고 로드
+    /// 3. BalanceCache에 로드
+    /// 4. WAL 스레드 시작
+    /// 5. 엔진 스레드 시작
     /// 
     /// # Note
     /// 이 메서드는 `Engine` trait의 `start()`에서 호출됩니다.
     /// 엔진 시작 (내부 구현)
     /// `&mut self`를 사용하여 필드를 직접 수정합니다.
     pub async fn start_impl(&mut self) -> Result<()> {
-        use crate::shared::database::repositories::cex::{OrderRepository, UserBalanceRepository};
-        use crate::domains::cex::engine::order_to_entry;
+        use crate::shared::database::repositories::cex::UserBalanceRepository;
         use anyhow::Context;
         
         eprintln!("[Engine Start] Starting engine initialization...");
@@ -489,68 +487,6 @@ impl HighPerformanceEngine {
                         rust_decimal::Decimal::ZERO, // locked는 0으로 초기화
                     );
                 }
-            }
-
-            eprintln!("[Engine Start] Loading active orders from database...");
-            let order_repo = OrderRepository::new(db.pool().clone());
-            let active_orders = order_repo
-                .get_all_active_orders()
-                .await
-                .context("Failed to load active orders from database")?;
-            
-            let active_orders_count = active_orders.len();
-            eprintln!("[Engine Start] Loaded {} active orders from database", active_orders_count);
-
-            // 활성 주문을 오더북에 추가하고 잔고 잠금 재계산
-            eprintln!("[Engine Start] Processing {} active orders (adding to orderbook and recalculating locked balances)...", active_orders_count);
-            {
-                let mut executor = self.executor.lock();
-                let mut orderbooks = self.orderbooks.write();
-                
-                let mut processed = 0u64;
-                for order in active_orders {
-                    processed += 1;
-                    if processed % 1000 == 0 {
-                        eprintln!("[Engine Start] Processed {}/{} orders...", processed, active_orders_count);
-                    }
-                    let entry = order_to_entry(&order);
-                    
-                    // 지정가 주문만 오더북에 추가 (시장가 주문은 오더북에 포함되지 않음)
-                    if order.order_side == "limit" && entry.price.is_some() {
-                        let pair = TradingPair::new(entry.base_mint.clone(), entry.quote_mint.clone());
-                        let pair_clone = pair.clone();
-                        let orderbook =
-                            orderbooks.entry(pair).or_insert_with(move || OrderBook::new(pair_clone));
-                        orderbook.add_order(entry.clone());
-                    }
-                    // 시장가 주문은 오더북에 추가하지 않음 (즉시 체결되어야 하므로)
-                    
-                    // 모든 활성 주문에 대해 잔고 잠금 재계산 (지정가/시장가 모두)
-                    let (lock_mint, lock_amount) = if order.order_type == "buy" {
-                        // 매수: quote_mint 잠금
-                        let amount = if order.order_side == "market" {
-                            // 시장가 매수: quote_amount 사용 (없으면 0)
-                            entry.quote_amount.unwrap_or(rust_decimal::Decimal::ZERO)
-                        } else {
-                            // 지정가 매수: price * remaining_amount
-                            entry.price.unwrap_or(rust_decimal::Decimal::ZERO) * entry.remaining_amount
-                        };
-                        (&order.quote_mint, amount)
-                    } else {
-                        // 매도: base_mint 잠금 (remaining_amount만큼)
-                        (&order.base_mint, entry.remaining_amount)
-                    };
-                    
-                    // 잔고 잠금 (에러 발생 시 에러 로그만 출력하고 계속 진행)
-                    if let Err(e) = executor.lock_balance_for_order(order.id, order.user_id, lock_mint, lock_amount) {
-                        eprintln!(
-                            "[Engine Start] Error: Failed to lock balance for order {}: user_id={}, mint={}, amount={}, error={}",
-                            order.id, order.user_id, lock_mint, lock_amount, e
-                        );
-                        // 잔고 잠금 실패 - 데이터 불일치 가능성 있음
-                    }
-                }
-                eprintln!("[Engine Start] Completed processing all {} active orders", active_orders_count);
             }
         } else {
             let mut executor = self.executor.lock();
@@ -768,16 +704,25 @@ impl Engine for HighPerformanceEngine {
     /// - 주문은 엔진이 백그라운드에서 처리됨
     /// - 주문 상태는 DB에서 확인 가능
     async fn submit_order(&self, order: OrderEntry) -> Result<()> {
+        eprintln!("[Engine] submit_order 호출: order_id={}, user_id={}, order_type={}, order_side={}, price={:?}, amount={}", 
+                 order.id, order.user_id, order.order_type, order.order_side, order.price, order.amount);
+        let order_id = order.id;
         let cmd = OrderCommand::SubmitOrder {
             order,
             response: None,  // 응답을 기다리지 않음
         };
         
-        self.order_tx.as_ref().unwrap().send(cmd)
-            .map_err(|e| anyhow::anyhow!("Failed to send order to engine: {}", e))?;
-        
-        // 즉시 반환 (엔진이 백그라운드에서 처리)
-        Ok(())
+        eprintln!("[Engine] 엔진 스레드로 주문 전송 시도: order_id={}", order_id);
+        match self.order_tx.as_ref().unwrap().send(cmd) {
+            Ok(_) => {
+                eprintln!("[Engine] 엔진 스레드로 주문 전송 성공: order_id={}", order_id);
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("[Engine] 엔진 스레드로 주문 전송 실패: order_id={}, error={}", order_id, e);
+                Err(anyhow::anyhow!("Failed to send order to engine: {}", e))
+            }
+        }
     }
     
     /// 주문 취소

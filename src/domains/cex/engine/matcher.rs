@@ -187,6 +187,8 @@ impl Matcher {
                 let match_price = current_ask;
                 
                 // MatchResult 생성
+                eprintln!("[Matcher] MatchResult 생성: buy_order.id={}, sell_order.id={}, buy_order.user_id={}, sell_order.user_id={}", 
+                         buy_order.id, sell_order.id, buy_order.user_id, sell_order.user_id);
                 let match_result = MatchResult {
                     buy_order_id: buy_order.id,
                     sell_order_id: sell_order.id,
@@ -327,6 +329,8 @@ impl Matcher {
                 let match_price = current_bid;
                 
                 // MatchResult 생성
+                eprintln!("[Matcher] MatchResult 생성 (limit, sell order): buy_order.id={}, sell_order.id={}, buy_order.user_id={}, sell_order.user_id={}", 
+                         buy_order.id, sell_order.id, buy_order.user_id, sell_order.user_id);
                 let match_result = MatchResult {
                     buy_order_id: buy_order.id,
                     sell_order_id: sell_order.id,

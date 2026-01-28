@@ -4,8 +4,13 @@
 // 역할: Rust 엔진에서 발생하는 이벤트를 Kafka로 발행
 // 
 // 발행 이벤트:
-// 1. 체결 이벤트 (trade-executed-{asset})
-// 2. 취소 이벤트 (order-cancelled-{asset})
+// 1. 체결 이벤트 (trade_executed)
+// 2. 취소 이벤트 (order_cancelled)
+//
+// 토픽 구조:
+// - 단일 토픽: order-events (파티션 12개)
+// - 파티션 키: user_id (같은 유저의 이벤트는 같은 파티션으로)
+// - 정산용: trade_executed, order_cancelled만 발행
 //
 // 특징:
 // - 비동기 발행 (논블로킹)
@@ -59,50 +64,47 @@ impl KafkaProducer {
     /// Publish trade executed event
     /// 
     /// # Arguments
-    /// * `base_mint` - 기준 자산 (예: "SOL")
     /// * `event` - 체결 이벤트 데이터
     /// 
     /// # Returns
     /// 발행 성공 여부 (비동기, 논블로킹)
     /// 
     /// # 파티션 키
-    /// - buy_order_id와 sell_order_id 모두 사용 가능
-    /// - 같은 주문의 이벤트는 같은 파티션으로 보장
+    /// - buyer_id를 파티션 키로 사용
+    /// - 같은 유저의 이벤트는 같은 파티션으로 보장 (순서 보장)
+    /// - seller_id는 별도로 발행하지 않음 (Java에서 buyer_id 기준으로 처리)
     pub async fn publish_trade_executed(
         &self,
-        base_mint: &str,
         event: &crate::shared::kafka::events::TradeExecutedEvent,
     ) -> Result<()> {
-        let topic = format!("order-events-{}", base_mint.to_lowercase());
-        // 파티션 키: buy_order_id와 sell_order_id 모두 사용
-        // 같은 주문의 이벤트는 같은 파티션으로 보장
-        let partition_key = format!("{}", event.buy_order_id);
-        self.publish(&topic, Some(&partition_key), event).await
+        eprintln!("[KafkaProducer] trade_executed 이벤트 발행 시작: buy_order_id={}, sell_order_id={}, buyer_id={}, seller_id={}", 
+                 event.buy_order_id, event.sell_order_id, event.buyer_id, event.seller_id);
+        let topic = "order-events";
+        // 파티션 키: buyer_id 사용 (같은 유저의 이벤트는 같은 파티션으로)
+        let partition_key = format!("{}", event.buyer_id);
+        self.publish(topic, Some(&partition_key), event).await
     }
 
     /// 취소 이벤트 발행
     /// Publish order cancelled event
     /// 
     /// # Arguments
-    /// * `base_mint` - 기준 자산 (예: "SOL")
     /// * `event` - 취소 이벤트 데이터
     /// 
     /// # Returns
     /// 발행 성공 여부 (비동기, 논블로킹)
     /// 
     /// # 파티션 키
-    /// - order_id를 파티션 키로 사용
-    /// - 같은 주문의 이벤트는 같은 파티션으로 보장
+    /// - user_id를 파티션 키로 사용
+    /// - 같은 유저의 이벤트는 같은 파티션으로 보장 (순서 보장)
     pub async fn publish_order_cancelled(
         &self,
-        base_mint: &str,
         event: &crate::shared::kafka::events::OrderCancelledEvent,
     ) -> Result<()> {
-        let topic = format!("order-events-{}", base_mint.to_lowercase());
-        // 파티션 키: order_id 사용
-        // 같은 주문의 이벤트는 같은 파티션으로 보장
-        let partition_key = format!("{}", event.order_id);
-        self.publish(&topic, Some(&partition_key), event).await
+        let topic = "order-events";
+        // 파티션 키: user_id 사용 (같은 유저의 이벤트는 같은 파티션으로)
+        let partition_key = format!("{}", event.user_id);
+        self.publish(topic, Some(&partition_key), event).await
     }
 
     /// Kafka 메시지 발행 (내부 메서드)
@@ -123,6 +125,9 @@ impl KafkaProducer {
         // JSON 직렬화
         let json = serde_json::to_string(value)
             .context("Failed to serialize event to JSON")?;
+        
+        // 디버깅: 실제 전송되는 JSON 확인
+        eprintln!("[KafkaProducer] 전송할 JSON: {}", json);
 
         // FutureRecord 생성
         let mut record = FutureRecord::to(topic);
@@ -171,12 +176,24 @@ mod tests {
     #[tokio::test]
     #[ignore] // Kafka 서버 필요
     async fn test_publish_trade_executed() {
+        use crate::shared::kafka::events::TradeExecutedEvent;
+        use rust_decimal::Decimal;
+        use chrono::Utc;
+        
         let producer = KafkaProducer::new("localhost:9092").unwrap();
-        let event = TestEvent {
-            order_id: 1,
-            user_id: 100,
+        let event = TradeExecutedEvent {
+            event_type: "trade_executed".to_string(),
+            buy_order_id: 100,
+            sell_order_id: 101,
+            buyer_id: 1,
+            seller_id: 2,
+            price: Decimal::new(10000, 2),
+            amount: Decimal::new(1, 0),
+            base_mint: "SOL".to_string(),
+            quote_mint: "USDT".to_string(),
+            timestamp: Utc::now(),
         };
-        let result = producer.publish_trade_executed("SOL", &event).await;
+        let result = producer.publish_trade_executed(&event).await;
         assert!(result.is_ok());
     }
 }

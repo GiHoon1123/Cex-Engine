@@ -7,9 +7,10 @@
 // 1. TradeExecutedEvent - 체결 이벤트
 // 2. OrderCancelledEvent - 취소 이벤트
 // 
-// 중요: 같은 토픽으로 통합하여 순서 보장
-// - 토픽: order-events-{asset}
-// - 파티션 키: orderId (같은 주문의 이벤트는 같은 파티션으로)
+// 중요: 단일 토픽으로 통합하여 순서 보장
+// - 토픽: order-events (파티션 12개)
+// - 파티션 키: user_id (같은 유저의 이벤트는 같은 파티션으로)
+// - 정산용: trade_executed, order_cancelled만 발행
 // =====================================================
 
 use serde::Serialize;
@@ -21,19 +22,18 @@ use chrono::{DateTime, Utc};
 /// 
 /// Kafka로 발행되는 체결 이벤트
 /// Java Consumer가 이를 받아서 DB에 저장합니다.
+/// 
+/// Note: trade_id는 Java DB에서 auto increment로 생성되므로 Rust에서 보내지 않음
 #[derive(Debug, Clone, Serialize)]
 pub struct TradeExecutedEvent {
     /// 이벤트 타입 ("trade_executed")
     #[serde(rename = "event_type")]
     pub event_type: String,
 
-    /// 체결 ID (엔진에서 생성)
-    pub trade_id: u64,
-
-    /// 매수 주문 ID (파티션 키로 사용)
+    /// 매수 주문 ID
     pub buy_order_id: u64,
 
-    /// 매도 주문 ID (파티션 키로 사용)
+    /// 매도 주문 ID
     pub sell_order_id: u64,
 
     /// 매수자 ID
@@ -69,7 +69,7 @@ pub struct OrderCancelledEvent {
     #[serde(rename = "event_type")]
     pub event_type: String,
 
-    /// 취소된 주문 ID (파티션 키로 사용)
+    /// 취소된 주문 ID
     pub order_id: u64,
 
     /// 주문한 사용자 ID

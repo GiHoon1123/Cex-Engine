@@ -52,10 +52,6 @@ use crate::domains::cex::models::*;
         // crate::domains::cex::handlers::trade_handler::get_24h_volume,
         // crate::domains::cex::handlers::position_handler::get_position,
         // crate::domains::cex::handlers::position_handler::get_all_positions,
-        // crate::domains::bot::handlers::bot_handler::delete_bot_data,
-        // crate::domains::bot::handlers::bot_handler::get_cleanup_scheduler_status,
-        // crate::domains::bot::handlers::bot_handler::enable_cleanup_scheduler,
-        // crate::domains::bot::handlers::bot_handler::disable_cleanup_scheduler
     ),
     components(schemas(
         // QuoteRequest,
@@ -101,8 +97,6 @@ use crate::domains::cex::models::*;
         // AssetPositionResponse,
         // AllPositionsResponse,
         // TradeSummary,
-        // crate::domains::bot::handlers::bot_handler::DeleteBotDataRequest,
-        // crate::domains::bot::handlers::bot_handler::DeleteBotDataResponse
     )),
     // modifiers(
     //     &SecurityAddon
@@ -116,7 +110,6 @@ use crate::domains::cex::models::*;
         (name = "CEX Orders", description = "CEX Exchange order API endpoints"),
         // (name = "CEX Trades", description = "CEX Exchange trade API endpoints"),
         // (name = "CEX Positions", description = "CEX Exchange position API endpoints (P&L, average entry price)"),
-        // (name = "Bot", description = "Bot management API endpoints (delete bot data)"),
         (name = "Health", description = "Health check API endpoints")
     ),
     info(
@@ -170,17 +163,6 @@ async fn main() {
     //     .expect("Failed to initialize database");
     eprintln!("[Main] Skipping database migrations (test mode)");
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // ID 생성기 초기화 (메모리 기반, DB 접근 없음)
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    use crate::shared::utils::id_generator::{OrderIdGenerator, TradeIdGenerator};
-    
-    // ID 생성기 초기화 (타임스탬프 기반)
-    OrderIdGenerator::initialize();
-    TradeIdGenerator::initialize();
-    
-    eprintln!("[Main] ID generators initialized (timestamp-based, no DB access)");
-
     // AppState 생성 (모든 Service 초기화)
     let mut app_state = AppState::new(db.clone())
         .expect("Failed to initialize AppState");
@@ -196,103 +178,6 @@ async fn main() {
     }
     eprintln!("[Main] Engine started successfully");
     
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 봇 관련 코드 주석 처리 (주문 생성/취소 테스트에 불필요)
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // eprintln!("[Main] Preparing bots (before engine start)...");
-    // 
-    // use crate::domains::bot::models::BotConfig;
-    // use crate::domains::bot::services::{
-    //     BotManager, BinanceClient, OrderbookSync,
-    // };
-    // use crate::domains::cex::services::order_service::OrderService;
-    // 
-    // // 봇 설정 로드
-    // eprintln!("[Main] Loading bot config from environment...");
-    // let bot_config = BotConfig::from_env();
-    // eprintln!("[Main] Bot config loaded: ws_url={}, symbol={}, depth={}, quantity={}", 
-    //           bot_config.binance_ws_url, bot_config.binance_symbol, 
-    //           bot_config.orderbook_depth, bot_config.order_quantity);
-    // 
-    // // 봇 관리자 생성 (엔진 참조는 필요하지만 아직 사용하지 않음)
-    // eprintln!("[Main] Creating BotManager...");
-    // let mut bot_manager = BotManager::new(
-    //     db.clone(),
-    //     app_state.engine.clone(),
-    //     bot_config.clone(),
-    // );
-    // 
-    // // 봇 계정 확인/생성 및 데이터 삭제 (엔진 불필요)
-    // eprintln!("[Main] Preparing bots (account creation and data cleanup)...");
-    // bot_manager.prepare_bots().await
-    //     .expect("Failed to prepare bots");
-    // 
-    // eprintln!("[Main] Bots prepared: bot1@bot.com (buy), bot2@bot.com (sell)");
-    // 
-    // // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // // 봇 잔고를 DB에 직접 쓰기 (엔진 시작 전)
-    // // 엔진 시작 시 DB에서 자동으로 로드됩니다
-    // // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // eprintln!("[Main] Setting bot balances in database (before engine start)...");
-    // bot_manager.set_bot_balances_in_db().await
-    //     .expect("Failed to set bot balances in DB");
-    // 
-    // eprintln!("[Main] Bot balances set in database");
-    
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // UDP 오더북 피드 시작 (UDP 멀티캐스트) - 주석 처리
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // eprintln!("[Main] Starting UDP orderbook feed...");
-    // let udp_feed = crate::domains::cex::services::UdpOrderbookFeed::new(
-    //     app_state.engine.clone(),
-    //     None, // 기본 설정 사용 (224.0.0.1:5000, 100ms 간격)
-    // ).await.expect("Failed to create UDP orderbook feed");
-    // 
-    // udp_feed.start();
-    // eprintln!("[Main] UDP orderbook feed started: multicast=224.0.0.1:5000, interval=100ms");
-    // 
-    // // 바이낸스 클라이언트 생성
-    // let binance_client = BinanceClient::new(bot_config.binance_ws_url.clone());
-    // 
-    // // 주문 서비스 생성
-    // let order_service = OrderService::new(
-    //     db.clone(),
-    //     app_state.engine.clone(),
-    // );
-    // 
-    // // 오더북 동기화 서비스 생성
-    // let mut orderbook_sync = OrderbookSync::new(
-    //     bot_manager.clone(),
-    //     order_service.clone(),
-    //     binance_client,
-    //     db.clone(),
-    // );
-    // 
-    // // 오더북 동기화 시작 (백그라운드 태스크)
-    // eprintln!("[Main] Starting orderbook synchronization...");
-    // tokio::spawn(async move {
-    //     eprintln!("[Main] Orderbook sync task started");
-    //     if let Err(e) = orderbook_sync.start().await {
-    //         eprintln!("[Main] Orderbook sync error: {}", e);
-    //     }
-    // });
-    // 
-    // eprintln!("[Main] Bot orderbook synchronization started");
-    // 
-    // // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // // 봇 데이터 정리 스케줄러 설정 및 시작 (비활성화됨)
-    // // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // // eprintln!("[Main] Setting up bot cleanup scheduler...");
-    // // {
-    // //     let bot1_user_id = bot_manager.bot1_user_id();
-    // //     let bot2_user_id = bot_manager.bot2_user_id();
-    // //     
-    // //     // AppState에 스케줄러 설정 및 시작
-    // //     app_state.setup_bot_cleanup_scheduler(bot1_user_id, bot2_user_id);
-    // //     
-    // //     eprintln!("[Main] Bot cleanup scheduler started (disabled by default, use API to enable)");
-    // // }
-    // eprintln!("[Main] Bot cleanup scheduler disabled (batch job not running)");
 
     // CORS 설정
     // 개발 환경: localhost 허용, 프로덕션: 모든 origin 허용 (또는 특정 도메인만)

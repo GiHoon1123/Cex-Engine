@@ -129,6 +129,12 @@ pub struct Order {
 #[derive(Debug, Deserialize, ToSchema)]
 #[schema(as = CreateOrderRequest)]
 pub struct CreateOrderRequest {
+    /// Order ID (from Java API, optional - if not provided, Rust engine will generate)
+    /// 주문 ID (Java API에서 전달, 선택적 - 없으면 Rust 엔진이 생성)
+    #[schema(value_type = Option<String>, example = "123456")]
+    #[serde(default)]
+    pub order_id: Option<u64>,
+
     /// User ID (from Java API, no authentication required)
     /// 사용자 ID (Java API에서 전달, 인증 불필요)
     #[schema(example = "1")]

@@ -189,13 +189,8 @@ impl Executor {
         // ============================================
         // skip_db_updates가 true인 경우 DB 명령 전송 건너뛰기 (시장가 주문의 경우)
         if !skip_db_updates {
-            // trade_id는 ID 생성기로 생성
-            use crate::shared::utils::id_generator::TradeIdGenerator;
-            let trade_id = TradeIdGenerator::next();
-            
             if let Some(sender) = &self.db_sender {
                 let cmd = DbCommand::InsertTrade {
-                    trade_id,
                     buy_order_id: match_result.buy_order_id,
                     sell_order_id: match_result.sell_order_id,
                     buyer_id: match_result.buyer_id,
@@ -221,6 +216,9 @@ impl Executor {
             // 매도자: SOL 차감 (locked에서 차감됨)
             // 매수자: SOL 증가 (available에 추가됨)
             
+            // [비활성화] Java 서버가 잔고의 Source of Truth가 되므로 엔진에서 DB 업데이트 비활성화
+            // 잔고 업데이트는 Kafka 이벤트를 통해 Java Consumer가 처리합니다.
+            /*
             if let Some(db_sender) = &self.db_sender {
                 // 매수자 USDT 잔고 업데이트 (locked에서 차감됨)
                 let _ = db_sender.send(DbCommand::UpdateBalance {
@@ -254,6 +252,7 @@ impl Executor {
                     locked_delta: None, // locked는 변경 없음
                 });
             }
+            */
         }
         
         // WAL에도 기록 (복구용) - 주석 처리됨 (WAL 비활성화)

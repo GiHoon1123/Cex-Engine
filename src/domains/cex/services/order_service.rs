@@ -1,6 +1,5 @@
 use std::sync::Arc;
 use crate::shared::database::{Database, OrderRepository};
-use crate::shared::utils::id_generator::OrderIdGenerator;
 use crate::domains::cex::models::order::{Order, CreateOrderRequest};
 use crate::domains::cex::engine::{Engine, TradingPair, OrderEntry, entry_to_order, runtime::HighPerformanceEngine};
 use anyhow::{Context, Result, bail};
@@ -149,19 +148,25 @@ impl OrderService {
             };
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // 3. 주문 ID 생성 (ID 생성기 사용)
+        // 3. 주문 ID 결정 (Java에서 전달된 ID 필수)
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // ID 생성기로 주문 ID를 미리 생성 (DB 쓰기 전에 ID 확보)
-        // 이렇게 하면 엔진 내부에서 매칭 시 올바른 ID를 사용할 수 있음
-        let order_id = OrderIdGenerator::next();
+        // Java API 서버에서 생성한 주문 ID를 반드시 사용해야 함
+        // 모든 주문은 Java API를 통해 생성되므로 order_id가 필수임
+        let order_id = if let Some(java_order_id) = request.order_id {
+            eprintln!("[OrderService] Java에서 전달된 order_id 사용: {}", java_order_id);
+            java_order_id
+        } else {
+            // Java에서 order_id를 전달하지 않은 경우 에러 발생
+            eprintln!("[OrderService] ERROR: Java에서 order_id를 전달하지 않음! 주문 생성 실패");
+            return Err(anyhow::anyhow!("order_id is required. All orders must be created through Java API first."));
+        };
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         // 4. 엔진에 주문 즉시 제출 (블로킹 없음!)
         // 주의: 잔고 잠금은 process_submit_order에서 처리됨 (중복 방지)
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // ID 생성기로 생성한 ID 사용
         let order_entry = OrderEntry {
-            id: order_id,  // DB에서 생성된 실제 ID
+            id: order_id,  // Java에서 전달된 주문 ID
             user_id,
             order_type: request.order_type.clone(),
             order_side: request.order_side.clone(),
@@ -180,11 +185,22 @@ impl OrderService {
         // 실제 거래소와 동일하게 주문을 즉시 반환하고 백그라운드에서 처리
         // 엔진이 내부적으로 WAL 기록 + DB 동기화 처리
         // 주의: DB에 이미 주문이 있으므로, 엔진의 DB Writer는 InsertOrder를 보내지 않음
+        let order_id_for_log = order_entry.id;
+        eprintln!("[OrderService] 엔진에 주문 제출 시작: order_id={}, user_id={}, order_type={}, order_side={}, price={:?}, amount={}", 
+                 order_id_for_log, user_id, request.order_type, request.order_side, request.price, amount);
         let engine_clone = self.engine.clone();
         tokio::spawn(async move {
+            eprintln!("[OrderService] 엔진에 주문 제출 중: order_id={}", order_entry.id);
             let engine_guard = engine_clone.lock().await;
-            if let Err(e) = engine_guard.submit_order(order_entry).await {
-                eprintln!("[Order Service] Failed to submit order to engine (async): {}", e);
+            eprintln!("[OrderService] 엔진 락 획득 완료: order_id={}", order_entry.id);
+            let order_id_after_submit = order_entry.id;
+            match engine_guard.submit_order(order_entry).await {
+                Ok(_) => {
+                    eprintln!("[OrderService] 엔진에 주문 제출 성공: order_id={}", order_id_after_submit);
+                }
+                Err(e) => {
+                    eprintln!("[OrderService] 엔진에 주문 제출 실패: order_id={}, error={}", order_id_after_submit, e);
+                }
             }
         });
 
@@ -203,7 +219,7 @@ impl OrderService {
         };
         
         let order = Order {
-            id: order_id,  // ID 생성기로 생성한 ID
+            id: order_id,  // Java에서 전달된 주문 ID
             user_id,
             order_type: request.order_type,
             order_side: request.order_side,

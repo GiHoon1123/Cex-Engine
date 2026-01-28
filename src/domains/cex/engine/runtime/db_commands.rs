@@ -68,7 +68,6 @@ pub enum DbCommand {
     /// 체결 내역 저장
     /// 
     /// # Fields
-    /// * `trade_id` - 체결 ID (ID 생성기로 생성)
     /// * `buy_order_id` - 매수 주문 ID
     /// * `sell_order_id` - 매도 주문 ID
     /// * `buyer_id` - 매수자 ID
@@ -78,8 +77,10 @@ pub enum DbCommand {
     /// * `base_mint` - 기준 자산
     /// * `quote_mint` - 기준 통화
     /// * `timestamp` - 체결 시간
+    /// 
+    /// Note: trade_id는 Java DB에서 auto increment로 생성됨 (Kafka 이벤트 경로).
+    /// Rust DB Writer 경로는 비활성화되어 있음.
     InsertTrade {
-        trade_id: u64,
         buy_order_id: u64,
         sell_order_id: u64,
         buyer_id: u64,

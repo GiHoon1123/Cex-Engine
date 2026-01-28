@@ -54,6 +54,10 @@ pub async fn create_order(
     State(app_state): State<AppState>,
     Json(request): Json<CreateOrderRequest>,
 ) -> Result<(StatusCode, Json<Order>), (StatusCode, Json<serde_json::Value>)> {
+    eprintln!("[OrderHandler] HTTP 요청 수신: order_id={:?}, user_id={}, order_type={}, order_side={}", 
+             request.order_id, request.user_id, request.order_type, request.order_side);
+    std::io::Write::flush(&mut std::io::stderr()).ok();
+    
     // Service 호출 (user_id는 요청 본문에서 가져옴)
     let user_id = request.user_id;
     let order = app_state
@@ -62,6 +66,7 @@ pub async fn create_order(
         .create_order(user_id, request)
         .await
         .map_err(|e| {
+            eprintln!("[OrderHandler] 주문 생성 실패: error={}", e);
             (
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({
@@ -70,6 +75,7 @@ pub async fn create_order(
             )
         })?;
 
+    eprintln!("[OrderHandler] 주문 생성 성공: order_id={}", order.id);
     Ok((StatusCode::CREATED, Json(order)))
 }
 

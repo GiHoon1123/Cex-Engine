@@ -1,8 +1,3 @@
-/// 공유 유틸리티 모듈
-/// Shared Utilities Module
-///
-/// 역할:
-/// - ID 생성기 (Order, Trade 등)
-/// - 기타 공통 유틸리티 함수
-pub mod id_generator;
+// 공유 유틸리티 모듈 (Shared Utilities)
+// ID 생성기 제거 후 현재 서브모듈 없음. 향후 공통 유틸 추가 시 사용.
 
