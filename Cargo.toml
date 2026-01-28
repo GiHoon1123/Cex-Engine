@@ -80,6 +80,9 @@ url = "2.5"
 hyper = { version = "1.0", features = ["server", "http1", "http2"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 
+# Kafka (이벤트 발행용)
+rdkafka = { version = "0.36", features = ["cmake-build", "ssl-vendored"] }
+
 [dev-dependencies]
 # 테스트용
 

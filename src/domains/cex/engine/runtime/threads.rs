@@ -22,6 +22,8 @@ use crate::domains::cex::engine::orderbook::OrderBook;
 use crate::domains::cex::engine::matcher::Matcher;
 use crate::domains::cex::engine::executor::Executor;
 use crate::domains::cex::engine::wal::{WalEntry, WalWriter};
+use crate::shared::kafka::{KafkaProducer, TradeExecutedEvent, OrderCancelledEvent};
+use chrono::Utc;
 
 use super::commands::OrderCommand;
 use super::balance_commands::BalanceCommand;
@@ -94,6 +96,7 @@ pub fn engine_thread_loop(
     balance_rx: Receiver<BalanceCommand>,
     wal_tx: Option<crossbeam::channel::Sender<WalEntry>>,
     db_tx: Option<crossbeam::channel::Sender<super::db_commands::DbCommand>>,
+    kafka_producer: Option<Arc<crate::shared::kafka::KafkaProducer>>,
     orderbooks: Arc<RwLock<HashMap<TradingPair, OrderBook>>>,
     matcher: Arc<Matcher>,
     executor: Arc<Mutex<Executor>>,
@@ -198,6 +201,7 @@ pub fn engine_thread_loop(
                             response,
                             wal_tx.as_ref(),
                             db_tx.as_ref(),
+                            kafka_producer.as_ref(),
                             &orderbooks,
                             &matcher,
                             &executor,
@@ -211,6 +215,7 @@ pub fn engine_thread_loop(
                             response,
                             wal_tx.as_ref(),
                             db_tx.as_ref(),
+                            kafka_producer.as_ref(),
                             &orderbooks,
                             &executor,
                             db.clone(),
@@ -279,6 +284,7 @@ pub fn engine_thread_loop(
                                             response,
                                             wal_tx.as_ref(),
                                             db_tx.as_ref(),
+                                            kafka_producer.as_ref(),
                                             &orderbooks,
                                             &matcher,
                                             &executor,
@@ -292,6 +298,7 @@ pub fn engine_thread_loop(
                                             response,
                                             wal_tx.as_ref(),
                                             db_tx.as_ref(),
+                                            kafka_producer.as_ref(),
                                             &orderbooks,
                                             &executor,
                                             db.clone(),
@@ -374,11 +381,12 @@ fn handle_submit_order(
     response: Option<tokio::sync::oneshot::Sender<Result<Vec<MatchResult>>>>,
     wal_tx: Option<&crossbeam::channel::Sender<WalEntry>>,
     db_tx: Option<&crossbeam::channel::Sender<super::db_commands::DbCommand>>,
+    kafka_producer: Option<&Arc<KafkaProducer>>,
     orderbooks: &Arc<RwLock<HashMap<TradingPair, OrderBook>>>,
     matcher: &Arc<Matcher>,
     executor: &Arc<Mutex<Executor>>,
 ) {
-    let result = process_submit_order(order, wal_tx, db_tx, orderbooks, matcher, executor);
+    let result = process_submit_order(order, wal_tx, db_tx, kafka_producer, orderbooks, matcher, executor);
     
     // response가 Some인 경우만 응답 전송 (비동기 처리 시 None)
     if let Some(tx) = response {
@@ -390,6 +398,7 @@ pub(crate) fn process_submit_order(
     mut order: OrderEntry,
     wal_tx: Option<&crossbeam::channel::Sender<WalEntry>>,
     db_tx: Option<&crossbeam::channel::Sender<super::db_commands::DbCommand>>,
+    kafka_producer: Option<&Arc<KafkaProducer>>,
     orderbooks: &Arc<RwLock<HashMap<TradingPair, OrderBook>>>,
     matcher: &Arc<Matcher>,
     executor: &Arc<Mutex<Executor>>,
@@ -645,7 +654,7 @@ pub(crate) fn process_submit_order(
                 entry.1 -= unlock_amount; // locked 감소
             }
             
-            // 1. InsertTrade 명령 전송 (모든 매칭)
+            // 1. InsertTrade 명령 전송 및 Kafka 이벤트 발행 (모든 매칭)
             for match_result in &matches {
                 let trade_id = TradeIdGenerator::next();
                 let db_cmd = super::db_commands::DbCommand::InsertTrade {
@@ -659,11 +668,43 @@ pub(crate) fn process_submit_order(
                     base_mint: match_result.base_mint.clone(),
                     quote_mint: match_result.quote_mint.clone(),
                     timestamp: Utc::now(),
-                        };
-                        if let Err(e) = tx.send(db_cmd) {
+                };
+                if let Err(e) = tx.send(db_cmd) {
                     eprintln!("Failed to send InsertTrade command: {}", e);
-                        }
-                    }
+                }
+                
+                // Kafka 이벤트 발행 (비동기, 논블로킹)
+                // 엔진 스레드는 일반 스레드이므로 tokio 런타임을 생성해야 함
+                if let Some(kafka_producer_ref) = kafka_producer {
+                    let kafka_producer_clone = kafka_producer_ref.clone();
+                    let match_result_clone = match_result.clone();
+                    let base_mint_clone = match_result.base_mint.clone();
+                    
+                    // 별도 스레드에서 tokio 런타임 생성하여 Kafka 발행
+                    std::thread::spawn(move || {
+                        let rt = tokio::runtime::Runtime::new().unwrap();
+                        rt.block_on(async move {
+                            let event = TradeExecutedEvent {
+                                event_type: "trade_executed".to_string(),
+                                trade_id,
+                                buy_order_id: match_result_clone.buy_order_id,
+                                sell_order_id: match_result_clone.sell_order_id,
+                                buyer_id: match_result_clone.buyer_id,
+                                seller_id: match_result_clone.seller_id,
+                                price: match_result_clone.price,
+                                amount: match_result_clone.amount,
+                                base_mint: match_result_clone.base_mint,
+                                quote_mint: match_result_clone.quote_mint,
+                                timestamp: Utc::now(),
+                            };
+                            
+                            if let Err(e) = kafka_producer_clone.publish_trade_executed(&base_mint_clone, &event).await {
+                                eprintln!("[Kafka] Failed to publish trade executed event: {}", e);
+                            }
+                        });
+                    });
+                }
+            }
             
             // 2. UpdateBalance 명령 전송 (집계된 잔고 변경)
             for ((user_id, mint), (available_delta, locked_delta)) in balance_changes {
@@ -731,6 +772,49 @@ pub(crate) fn process_submit_order(
             if let Err(e) = executor_guard.execute_trade(match_result, false) {
                 // 에러 발생 시 로그 기록
                 eprintln!("Failed to execute trade: {}", e);
+            }
+        }
+    }
+    
+    // 8-0. 지정가 주문 체결 시 Kafka 이벤트 발행 (모든 매칭)
+    // 시장가 주문과 동일하게 각 매칭마다 trade_executed 이벤트 발행
+    if !is_market_order && !matches.is_empty() {
+        use crate::shared::utils::id_generator::TradeIdGenerator;
+        use chrono::Utc;
+        
+        for match_result in &matches {
+            let trade_id = TradeIdGenerator::next();
+            
+            // Kafka 이벤트 발행 (비동기, 논블로킹)
+            // 엔진 스레드는 일반 스레드이므로 tokio 런타임을 생성해야 함
+            if let Some(kafka_producer_ref) = kafka_producer {
+                let kafka_producer_clone = kafka_producer_ref.clone();
+                let match_result_clone = match_result.clone();
+                let base_mint_clone = match_result.base_mint.clone();
+                
+                // 별도 스레드에서 tokio 런타임 생성하여 Kafka 발행
+                std::thread::spawn(move || {
+                    let rt = tokio::runtime::Runtime::new().unwrap();
+                    rt.block_on(async move {
+                        let event = TradeExecutedEvent {
+                            event_type: "trade_executed".to_string(),
+                            trade_id,
+                            buy_order_id: match_result_clone.buy_order_id,
+                            sell_order_id: match_result_clone.sell_order_id,
+                            buyer_id: match_result_clone.buyer_id,
+                            seller_id: match_result_clone.seller_id,
+                            price: match_result_clone.price,
+                            amount: match_result_clone.amount,
+                            base_mint: match_result_clone.base_mint,
+                            quote_mint: match_result_clone.quote_mint,
+                            timestamp: Utc::now(),
+                        };
+                        
+                        if let Err(e) = kafka_producer_clone.publish_trade_executed(&base_mint_clone, &event).await {
+                            eprintln!("[Kafka] Failed to publish trade executed event: {}", e);
+                        }
+                    });
+                });
             }
         }
     }
@@ -900,6 +984,7 @@ fn handle_cancel_order(
     response: tokio::sync::oneshot::Sender<Result<OrderEntry>>,
     wal_tx: Option<&crossbeam::channel::Sender<WalEntry>>,
     db_tx: Option<&crossbeam::channel::Sender<super::db_commands::DbCommand>>,
+    kafka_producer: Option<&Arc<KafkaProducer>>,
     orderbooks: &Arc<RwLock<HashMap<TradingPair, OrderBook>>>,
     executor: &Arc<Mutex<Executor>>,
     db: Option<Database>,
@@ -984,81 +1069,16 @@ fn handle_cancel_order(
         }
     }
     
-    let order_type = found_order.as_ref().map(|o| o.order_type.clone());
-    
-    // 3. OrderBook에서 찾지 못했으면 DB에서 조회
-    let (order, from_db) = match found_order {
-        Some(o) => (o, false),
+    // 3. OrderBook에서 찾지 못했으면 에러 반환 (DB 조회 안 함 - 성능 최적화)
+    // 엔진은 OrderBook만 확인하고, DB 조회는 하지 않음
+    // Java에서 이미 상태를 확인했으므로, OrderBook에 없으면 이미 체결되었거나 취소된 것
+    let order = match found_order {
+        Some(o) => o,
         None => {
-            // OrderBook에서 찾지 못함 - DB에서 조회
-            if let Some(db) = db {
-                use crate::shared::database::repositories::cex::order_repository::OrderRepository;
-                let order_repo = OrderRepository::new(db.pool().clone());
-                
-                // DB에서 주문 조회
-                match tokio::runtime::Handle::try_current() {
-                    Ok(handle) => {
-                        match handle.block_on(order_repo.get_by_id(order_id)) {
-                            Ok(Some(db_order)) => {
-                                // 권한 확인
-                                if db_order.user_id != user_id {
-                                    let _ = response.send(Err(anyhow::anyhow!("Unauthorized: You don't own this order")));
-                                    return;
-                                }
-                                
-                                // 완전히 체결된 주문은 취소 불가
-                                if db_order.status == "filled" {
-                                    let _ = response.send(Err(anyhow::anyhow!("Cannot cancel order: Order is already filled")));
-                                    return;
-                                }
-                                
-                                // 취소된 주문은 취소 불가
-                                if db_order.status == "cancelled" {
-                                    let _ = response.send(Err(anyhow::anyhow!("Cannot cancel order: Order is already cancelled")));
-                                    return;
-                                }
-                                
-                                // DB 주문을 OrderEntry로 변환
-                                let order_entry = OrderEntry {
-                                    id: db_order.id,
-                                    user_id: db_order.user_id,
-                                    order_type: db_order.order_type,
-                                    order_side: db_order.order_side,
-                                    base_mint: db_order.base_mint,
-                                    quote_mint: db_order.quote_mint,
-                                    price: db_order.price,
-                                    amount: db_order.amount,
-                                    quote_amount: None, // DB Order에는 quote_amount 필드가 없으므로 None
-                                    filled_amount: db_order.filled_amount,
-                                    remaining_amount: db_order.amount - db_order.filled_amount,
-                                    remaining_quote_amount: None,
-                                    created_at: db_order.created_at,
-                                };
-                                
-                                // DB에서 주문을 찾았으므로 취소 처리 계속 진행
-                                (order_entry, true)
-                            }
-                            Ok(None) => {
-                                let _ = response.send(Err(anyhow::anyhow!("Order not found")));
-                                return;
-                            }
-                            Err(e) => {
-                                let _ = response.send(Err(anyhow::anyhow!("Failed to query order from database: {}", e)));
-                                return;
-                            }
-                        }
-                    }
-                    Err(_) => {
-                        // Tokio 런타임이 없으면 DB 조회 불가
-                        let _ = response.send(Err(anyhow::anyhow!("Order not found in OrderBook and cannot query database")));
-                        return;
-                    }
-                }
-            } else {
-                // DB가 없으면 OrderBook에서만 찾기
-                let _ = response.send(Err(anyhow::anyhow!("Order not found")));
-                return;
-            }
+            // OrderBook에 주문이 없음 = 이미 체결되었거나 취소됨
+            // Java에서 이미 상태를 확인했으므로, 여기서는 에러만 반환
+            let _ = response.send(Err(anyhow::anyhow!("Order not found in OrderBook. It may have been already filled or cancelled.")));
+            return;
         }
     };
     
@@ -1077,6 +1097,9 @@ fn handle_cancel_order(
     
     // 4. 잔고 잠금 해제 (remaining_amount만큼)
     let order_type_str = order.order_type.as_str();
+    
+    // 주의: 엔진은 OrderBook(메모리)만 확인하고 DB는 조회하지 않음
+    // DB 조회는 Java에서 이미 수행했으므로, OrderBook에 없으면 이미 체결되었거나 취소된 것
     let unlock_mint = if order_type_str == "buy" {
         &order.quote_mint  // 매수: USDT 잠금 해제
     } else {
@@ -1101,33 +1124,36 @@ fn handle_cancel_order(
         }
     }
     
-    // 5. DB에 주문 상태 업데이트 (cancelled)
-    if let Some(tx) = db_tx {
-        let db_cmd = super::db_commands::DbCommand::UpdateOrderStatus {
-            order_id,
-            status: "cancelled".to_string(),
-            filled_amount: order.filled_amount,
-            filled_quote_amount: Decimal::ZERO, // 취소 시 filled_quote_amount는 0으로 유지 (이미 체결된 금액은 그대로)
-        };
-        if let Err(e) = tx.send(db_cmd) {
-            eprintln!("Failed to send UpdateOrderStatus command for cancel: {}", e);
-        }
+    // 5. Kafka 이벤트 발행 (비동기, 논블로킹)
+    // DB 업데이트는 Java Consumer가 처리하므로 여기서는 Kafka 이벤트만 발행
+    // 비동기 태스크로 Kafka 발행 (논블로킹)
+    // 엔진 스레드는 일반 스레드이므로 tokio 런타임을 생성해야 함
+    if let Some(kafka_producer) = kafka_producer {
+        let kafka_producer_clone = kafka_producer.clone();
+        let base_mint_clone = order.base_mint.clone();
+        let quote_mint_clone = order.quote_mint.clone();
+        
+        // 별도 스레드에서 tokio 런타임 생성하여 Kafka 발행
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async move {
+                let event = OrderCancelledEvent {
+                    event_type: "order_cancelled".to_string(),
+                    order_id,
+                    user_id,
+                    base_mint: base_mint_clone.clone(),
+                    quote_mint: quote_mint_clone,
+                    timestamp: Utc::now(),
+                };
+                
+                if let Err(e) = kafka_producer_clone.publish_order_cancelled(&base_mint_clone, &event).await {
+                    eprintln!("[Kafka] Failed to publish order cancelled event: {}", e);
+                }
+            });
+        });
     }
     
-    // 6. 잔고 업데이트를 DB에 반영 (unlock)
-    if let Some(tx) = db_tx {
-        let db_cmd = super::db_commands::DbCommand::UpdateBalance {
-            user_id,
-            mint: unlock_mint.to_string(),
-            available_delta: Some(unlock_amount), // available 증가
-            locked_delta: Some(-unlock_amount), // locked 감소
-        };
-        if let Err(e) = tx.send(db_cmd) {
-            eprintln!("Failed to send UpdateBalance command for unlock: {}", e);
-        }
-    }
-    
-    // 7. 취소된 주문 반환
+    // 6. 취소된 주문 반환 (DB 업데이트는 Kafka Consumer가 처리)
     let _ = response.send(Ok(order));
 }
 

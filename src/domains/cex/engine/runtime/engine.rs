@@ -29,6 +29,7 @@ use rust_decimal::Decimal;
 use async_trait::async_trait;
 
 use crate::shared::database::Database;
+use crate::shared::kafka::KafkaProducer;
 use crate::domains::cex::engine::types::{TradingPair, OrderEntry, MatchResult};
 use crate::domains::cex::engine::orderbook::OrderBook;
 use crate::domains::cex::engine::matcher::Matcher;
@@ -282,6 +283,21 @@ pub struct HighPerformanceEngine {
 
     /// 실행 모드 (표준/벤치)
     mode: EngineMode,
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // Kafka Producer (이벤트 발행용)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    /// Kafka Producer (이벤트 발행용)
+    /// 
+    /// # 사용 목적
+    /// - 체결 이벤트 발행 (trade-executed-{asset})
+    /// - 취소 이벤트 발행 (order-cancelled-{asset})
+    /// 
+    /// # 특징
+    /// - 비동기 발행 (논블로킹)
+    /// - 엔진 성능에 영향 없음
+    kafka_producer: Option<Arc<KafkaProducer>>,
 }
 
 impl HighPerformanceEngine {
@@ -378,6 +394,29 @@ impl HighPerformanceEngine {
             EngineMode::Bench => None,
         };
 
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 4. Kafka Producer 초기화
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        let kafka_producer = match mode {
+            EngineMode::Standard => {
+                // 환경 변수에서 Kafka 브로커 주소 가져오기
+                let bootstrap_servers = std::env::var("KAFKA_BOOTSTRAP_SERVERS")
+                    .unwrap_or_else(|_| "localhost:9092".to_string());
+                
+                match KafkaProducer::new(&bootstrap_servers) {
+                    Ok(producer) => {
+                        eprintln!("[Engine] Kafka Producer initialized: {}", bootstrap_servers);
+                        Some(Arc::new(producer))
+                    }
+                    Err(e) => {
+                        eprintln!("[Engine] Failed to initialize Kafka Producer: {} (continuing without Kafka)", e);
+                        None // Kafka 실패해도 엔진은 계속 동작
+                    }
+                }
+            }
+            EngineMode::Bench => None, // 벤치마크 모드에서는 Kafka 사용 안 함
+        };
+
         Self {
             order_tx: Some(order_tx),
             order_rx,
@@ -397,6 +436,7 @@ impl HighPerformanceEngine {
             db: db.into(),
             wal_dir,
             mode,
+            kafka_producer,
         }
     }
     
@@ -576,12 +616,14 @@ impl HighPerformanceEngine {
         let running = Arc::clone(&self.running);
         
         let db_for_thread = self.db.clone();
+        let kafka_producer_for_thread = self.kafka_producer.clone();
         let engine_thread = thread::spawn(move || {
             super::threads::engine_thread_loop(
                 order_rx,
                 balance_rx,
                 wal_tx,
                 db_tx,
+                kafka_producer_for_thread,
                 orderbooks,
                 matcher,
                 executor,
