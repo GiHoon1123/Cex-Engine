@@ -681,6 +681,47 @@ pub(crate) fn process_submit_order(
             // Trade는 Java DB에서 저장하므로 Rust에서는 DB 명령 전송하지 않음
             // trade_id는 Java DB에서 auto increment로 생성되므로 Rust에서 보내지 않음
             for match_result in &matches {
+                // 체결 후 잔고 조회 (executor_guard를 잡고 있는 동안)
+                let balance_snapshot = {
+                    let executor_guard = executor.lock();
+                    
+                    // 체결 후 잔고 조회 (단일 스레드이므로 안전)
+                    use crate::domains::cex::engine::balance_cache::Balance;
+                    let buyer_base = executor_guard.balance_cache()
+                        .get_balance(match_result.buyer_id, &match_result.base_mint)
+                        .cloned()
+                        .unwrap_or_else(|| Balance::new());
+                        
+                    let buyer_quote = executor_guard.balance_cache()
+                        .get_balance(match_result.buyer_id, &match_result.quote_mint)
+                        .cloned()
+                        .unwrap_or_else(|| Balance::new());
+                        
+                    let seller_base = executor_guard.balance_cache()
+                        .get_balance(match_result.seller_id, &match_result.base_mint)
+                        .cloned()
+                        .unwrap_or_else(|| Balance::new());
+                        
+                    let seller_quote = executor_guard.balance_cache()
+                        .get_balance(match_result.seller_id, &match_result.quote_mint)
+                        .cloned()
+                        .unwrap_or_else(|| Balance::new());
+                    
+                    // executor_guard가 여기서 해제됨
+                    
+                    // 잔고 스냅샷 반환
+                    (
+                        buyer_base.available,
+                        buyer_base.locked,
+                        buyer_quote.available,
+                        buyer_quote.locked,
+                        seller_base.available,
+                        seller_base.locked,
+                        seller_quote.available,
+                        seller_quote.locked,
+                    )
+                };
+                
                 // Kafka 이벤트 발행 (비동기, 논블로킹)
                 // 엔진 스레드는 일반 스레드이므로 tokio 런타임을 생성해야 함
                 if let Some(kafka_producer_ref) = kafka_producer {
@@ -706,6 +747,16 @@ pub(crate) fn process_submit_order(
                                 base_mint: match_result_clone.base_mint,
                                 quote_mint: match_result_clone.quote_mint,
                                 timestamp: Utc::now(),
+                                
+                                // 잔고 스냅샷
+                                buyer_base_available: balance_snapshot.0,
+                                buyer_base_locked: balance_snapshot.1,
+                                buyer_quote_available: balance_snapshot.2,
+                                buyer_quote_locked: balance_snapshot.3,
+                                seller_base_available: balance_snapshot.4,
+                                seller_base_locked: balance_snapshot.5,
+                                seller_quote_available: balance_snapshot.6,
+                                seller_quote_locked: balance_snapshot.7,
                             };
                             
                             eprintln!("[Engine Thread] trade_executed 이벤트 발행 시도: buy_order_id={}, sell_order_id={}", 
@@ -808,6 +859,47 @@ pub(crate) fn process_submit_order(
         use chrono::Utc;
         
         for match_result in &matches {
+            // 체결 후 잔고 조회 (executor_guard를 잡고 있는 동안)
+            let balance_snapshot = {
+                let executor_guard = executor.lock();
+                
+                // 체결 후 잔고 조회 (단일 스레드이므로 안전)
+                use crate::domains::cex::engine::balance_cache::Balance;
+                let buyer_base = executor_guard.balance_cache()
+                    .get_balance(match_result.buyer_id, &match_result.base_mint)
+                    .cloned()
+                    .unwrap_or_else(|| Balance::new());
+                    
+                let buyer_quote = executor_guard.balance_cache()
+                    .get_balance(match_result.buyer_id, &match_result.quote_mint)
+                    .cloned()
+                    .unwrap_or_else(|| Balance::new());
+                    
+                let seller_base = executor_guard.balance_cache()
+                    .get_balance(match_result.seller_id, &match_result.base_mint)
+                    .cloned()
+                    .unwrap_or_else(|| Balance::new());
+                    
+                let seller_quote = executor_guard.balance_cache()
+                    .get_balance(match_result.seller_id, &match_result.quote_mint)
+                    .cloned()
+                    .unwrap_or_else(|| Balance::new());
+                
+                // executor_guard가 여기서 해제됨
+                
+                // 잔고 스냅샷 반환
+                (
+                    buyer_base.available,
+                    buyer_base.locked,
+                    buyer_quote.available,
+                    buyer_quote.locked,
+                    seller_base.available,
+                    seller_base.locked,
+                    seller_quote.available,
+                    seller_quote.locked,
+                )
+            };
+            
             // Kafka 이벤트 발행 (비동기, 논블로킹)
             // 엔진 스레드는 일반 스레드이므로 tokio 런타임을 생성해야 함
             // trade_id는 Java DB에서 auto increment로 생성되므로 Rust에서 보내지 않음
@@ -834,6 +926,16 @@ pub(crate) fn process_submit_order(
                             base_mint: match_result_clone.base_mint,
                             quote_mint: match_result_clone.quote_mint,
                             timestamp: Utc::now(),
+                            
+                            // 잔고 스냅샷
+                            buyer_base_available: balance_snapshot.0,
+                            buyer_base_locked: balance_snapshot.1,
+                            buyer_quote_available: balance_snapshot.2,
+                            buyer_quote_locked: balance_snapshot.3,
+                            seller_base_available: balance_snapshot.4,
+                            seller_base_locked: balance_snapshot.5,
+                            seller_quote_available: balance_snapshot.6,
+                            seller_quote_locked: balance_snapshot.7,
                         };
                         
                         eprintln!("[Engine Thread] trade_executed 이벤트 발행 시도 (limit order): buy_order_id={}, sell_order_id={}", 

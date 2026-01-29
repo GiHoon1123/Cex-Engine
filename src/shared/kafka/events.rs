@@ -56,6 +56,27 @@ pub struct TradeExecutedEvent {
 
     /// 체결 시간
     pub timestamp: DateTime<Utc>,
+    
+    // ============================================
+    // 체결 후 잔고 스냅샷 (수수료 적용 전)
+    // 엔진 스레드에서 체결 직후 조회하여 전송
+    // ============================================
+    
+    /// 매수자 base_mint 잔고 (체결 후)
+    pub buyer_base_available: Decimal,
+    pub buyer_base_locked: Decimal,
+    
+    /// 매수자 quote_mint 잔고 (체결 후)
+    pub buyer_quote_available: Decimal,
+    pub buyer_quote_locked: Decimal,
+    
+    /// 매도자 base_mint 잔고 (체결 후)
+    pub seller_base_available: Decimal,
+    pub seller_base_locked: Decimal,
+    
+    /// 매도자 quote_mint 잔고 (체결 후)
+    pub seller_quote_available: Decimal,
+    pub seller_quote_locked: Decimal,
 }
 
 /// 주문 취소 이벤트
