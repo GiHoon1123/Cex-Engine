@@ -3,10 +3,7 @@
 
 pub mod balance_handler;
 pub mod order_handler;
-pub mod trade_handler;
-pub mod position_handler;
+// trade_handler와 position_handler는 Java에서 조회 API를 제공하므로 삭제됨
 
 pub use balance_handler::*;
 pub use order_handler::*;
-pub use trade_handler::*;
-pub use position_handler::*;
