@@ -17,3 +17,7 @@
 ## 자체 시장 데이터
 
 공개 호가·체결은 WAL 확정 후 `market-events`로 발행한다. 브라우저는 플랫폼에 연결한다. [시장 출력 계약과 검증](docs/decisions/011-durable-market-output.md), [엔진 봇 제거](docs/decisions/010-remove-engine-bot.md)를 참고한다.
+
+## 주문 실패·복구의 현재 계약
+
+[전체 주문 거절의 영속 결과와 예약 반환 근거](docs/decisions/014-durable-order-rejection.md)에서 현재 구현·테스트·저장 계약과 운영 한계를 확인한다. 엔진 저널 버전은 4이며 과거 저널을 자동 변환하지 않는다.

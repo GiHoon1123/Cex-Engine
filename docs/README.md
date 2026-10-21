@@ -22,3 +22,5 @@
 - [주문 당시 적용률과 수취 자산 수수료](decisions/012-received-asset-fees.md): 코어 차감·WAL 보존·변화량 발행·복구·비영 수수료 검증.
 
 - [시장가 IOC 종료와 미사용 예약 반환](decisions/013-market-ioc-completion.md): 체결 0건·부분·전량 결과, 영속 종료 이벤트, 순서·재생 검증.
+
+- [전체 주문 거절의 영속 결과와 예약 반환 근거](decisions/014-durable-order-rejection.md): 원본 검증·재시작·중복 처리·실제 장애 주입 검증.

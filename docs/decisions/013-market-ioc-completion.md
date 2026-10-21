@@ -58,7 +58,7 @@
 
 ## 실행 명령과 결과
 
-`python3 scripts/verify_order_safety.py`: 실행 소유 PostgreSQL에서 고유 Rust **125개 통과**, 필터 중복을 포함하면 **127회**다. 전체 테스트 컴파일·제품 빌드도 통과했다. 공유 외부 의존성에 연결하는 기존 테스트 전체를 실행한 결과는 아니다.
+`python3 scripts/verify_order_safety.py`: 실행 소유 PostgreSQL에서 고유 Rust **129개 통과**, 필터 중복을 포함하면 **131회**다. 전체 테스트 컴파일·제품 빌드도 통과했다. 공유 외부 의존성에 연결하는 기존 테스트 전체를 실행한 결과는 아니다.
 
 `cargo check --locked --benches --features bench_mode`: 벤치 컴파일 확인이며 처리량 측정이 아니다. 실제 제품 프로세스·플랫폼 결과는 [플랫폼 기록](../../../Cex-Platform-Service/docs/decisions/009-market-ioc-settlement.md)을 참고한다. 기존 미사용 코드·향후 Rust 버전 호환 경고는 남아 있다.
 
@@ -76,3 +76,7 @@
 - [플랫폼 구현·테스트 `7eed751`](https://github.com/GiHoon1123/Cex-Platform-Service/commit/7eed7510be774a7d3f493100d958f858f04f37cf)
 
 두 저장소의 종료 이벤트 계약과 저장 정밀도가 함께 바뀐다. 개별 프로세스만 먼저 배포하는 검증은 수행하지 않았다.
+
+## 후속 상태 갱신
+
+거절 결과·응답 불명 자동 복구는 [다음 사이클](014-durable-order-rejection.md)에서 구현·검증했다. 현재 저널 버전은 4다. 이 문서의 버전 3은 당시 저장 계약이다. Rust 집계는 진행 로그로 나뉜 시작 테스트 4개 누락을 정정해 고유 129개/131회로 표시했다.
