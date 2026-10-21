@@ -16,3 +16,5 @@
 - [WAL 확정 후 공개와 자체 저널 복구](decisions/009-durable-journal-recovery.md): 기록·Kafka 워커 분리, 커밋 후 응답·발행, 전체 명령 재생과 강제 종료 검증.
 
 - [엔진의 비활성 봇 제거](decisions/010-remove-engine-bot.md): 플랫폼으로 봇 책임을 모으고 남은 파일·직접 의존성을 제거한 근거와 회귀 검사.
+
+- [WAL 기반 자체 호가·공개 체결 발행](decisions/011-durable-market-output.md): 코어 비용 분리, 시장 토픽·순번·재시작 기준점과 취소의 자체 상태 검증.
