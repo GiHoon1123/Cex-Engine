@@ -11,3 +11,4 @@
 - [금액 타입 경계 재검토와 정확한 해독](decisions/005-exact-amount-boundaries-review.md): 입력·저장·조회 경계 오류 재현, 수정과 회귀 검증.
 - [한 신규 주문의 매칭과 잔액을 메모리에 함께 확정하기](decisions/006-atomic-order-memory-commit.md): 후보 매칭, 전체 정산·반환 검증, 주문장·캐시 확정과 실패 회귀.
 - [엔진 상태를 단일 워커가 독점 소유하도록 바꾸기](decisions/007-single-owner-engine-state.md): 주문장·실행 잔액의 공유 락 제거, 요청 핸들 분리, 실제 워커와 큐 포화 회귀.
+- [체결 결과를 하나의 출력 워커로 분리하기](decisions/008-ordered-output-worker.md): 체결별 스레드·핵심 경로 I/O 제거, 출력 포화·오류·종료 처리와 실제 Kafka 검증.

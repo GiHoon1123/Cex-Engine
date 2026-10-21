@@ -32,6 +32,8 @@
 
 후보 계산은 검토한 호가를 순회하고, 변경 maker와 참여 계정을 저장한다. 확정 시에는 마지막 변경 maker까지의 큐 앞부분만 처리한다. 건너뛴 자기 주문·부분 체결 주문을 작은 prefix로 옮겼다가 같은 순서로 되돌려, 긴 미체결 꼬리를 복제·전수 순회하지 않는다. 새 설정·호환 경로는 추가하지 않았다.
 
+후속 [출력 워커 분리](008-ordered-output-worker.md)에서 플랫폼 주문 상태 선반영과 핵심 경로의 DB 채널 전송을 제거했다.
+
 ## 구현 흐름
 
 ```mermaid
@@ -43,7 +45,7 @@ flowchart TD
     E -->|아니오| F[오류 반환: 원본 주문장·캐시 그대로]
     E -->|예| G[준비한 maker·잔여 taker·계정 반영]
     G --> H[독점 대여 종료]
-    H --> I[기존 DB·Kafka 후속 전달]
+    H --> I[출력 워커의 Kafka 후속 전달]
 ```
 
 - [matcher.rs](../../src/domains/cex/engine/matcher.rs): `plan_order(&OrderEntry, &OrderBook)`가 다음 taker·변경 maker·체결 목록·정확한 누적 대금을 계산한다. 기존 원본 수정형 `match_order`를 삭제했다. 잘못된 주문 종류·누락 가격·손상 잔량·다른 마켓 maker도 오류로 반환한다.
