@@ -25,6 +25,19 @@ where
     s.parse::<u64>().map_err(serde::de::Error::custom)
 }
 
+/// 플랫폼이 보내는 금액은 문자열만 받는다. 일반 Decimal serde는 지나치게
+/// 정밀한 값을 반올림할 수 있어, 원본 대조 전에 다른 금액이 되는 것을 막는다.
+/// 없는 필드와 null은 None이며 숫자 JSON을 float로 우회 해석하지 않는다.
+fn deserialize_exact_optional_decimal<'de, D>(deserializer: D) -> Result<Option<Decimal>, D::Error>
+where D: Deserializer<'de> {
+    Option::<String>::deserialize(deserializer)?.map(|value| {
+        let normalized = if value.contains('.') {
+            value.trim_end_matches('0').trim_end_matches('.')
+        } else { &value };
+        Decimal::from_str_exact(normalized).map_err(serde::de::Error::custom)
+    }).transpose()
+}
+
 // =====================================================
 // Order 모델
 // =====================================================
@@ -164,6 +177,7 @@ pub struct CreateOrderRequest {
     /// Unit: USDT per base asset
     /// 단위: 기준 자산당 USDT
     #[schema(value_type = Option<String>, example = "100.0")]
+    #[serde(default, deserialize_with = "deserialize_exact_optional_decimal")]
     pub price: Option<Decimal>,
 
     /// Order amount (in base asset)
@@ -174,6 +188,7 @@ pub struct CreateOrderRequest {
     /// Note: For market buy orders, use `quote_amount` instead.
     /// 시장가 매수 주문의 경우 `quote_amount`를 사용하세요.
     #[schema(value_type = Option<String>, example = "1.0")]
+    #[serde(default, deserialize_with = "deserialize_exact_optional_decimal")]
     pub amount: Option<Decimal>,
 
     /// Quote amount (for market buy orders only)
@@ -192,6 +207,7 @@ pub struct CreateOrderRequest {
     /// - 지정가 매수: `amount` 필수
     /// - 모든 매도: `amount` 필수
     #[schema(value_type = Option<String>, example = "1000.0")]
+    #[serde(default, deserialize_with = "deserialize_exact_optional_decimal")]
     pub quote_amount: Option<Decimal>,
 }
 
@@ -300,3 +316,6 @@ pub struct OrderCreate {
     pub amount: Decimal,
 }
 
+
+#[cfg(test)]
+mod decimal_tests;
