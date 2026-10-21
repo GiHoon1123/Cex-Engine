@@ -568,27 +568,19 @@ pub(crate) fn process_submit_order(
             let mut executor_guard = executor.lock();
             for match_result in &matches {
                 // skip_db_updates=true로 설정하여 DB 명령 전송 건너뛰기
-                match executor_guard.execute_trade(match_result, true) {
-                    Ok(_) => {
-                        // 성공한 매칭만 추적
-                        successful_matches.push(match_result.clone());
-                        if order_after_match.order_type == "buy" {
-                            total_quote_used += match_result.price * match_result.amount;
-                        } else {
-                            total_amount_used += match_result.amount;
-                        }
-                    }
-                    Err(e) => {
-                        // 잔고 부족 등으로 실패한 매칭은 건너뛰고 계속 진행
-                        eprintln!("[Market Order] Failed to execute trade (skipping): buy_order_id={}, sell_order_id={}, buyer_id={}, seller_id={}, error={}", 
-                                 match_result.buy_order_id, match_result.sell_order_id, 
-                                 match_result.buyer_id, match_result.seller_id, e);
-                        // 실패한 매칭은 무시하고 계속 진행
+                // 캐시 정산 실패를 건너뛰고 정상 종료·예약 해제·이벤트 발행으로
+                // 진행하지 않는다. 주문장·여러 체결의 전체 롤백은 별도 후속 경계다.
+                executor_guard.execute_trade(match_result, true)
+                    .context("Market trade settlement failed")?;
+                successful_matches.push(match_result.clone());
+                if order_after_match.order_type == "buy" {
+                    total_quote_used += match_result.price * match_result.amount;
+                } else {
+                    total_amount_used += match_result.amount;
                 }
             }
         }
-        }
-        
+
         // 디버깅: 성공한 매칭 확인
         eprintln!("[Market Order Debug] order_id={}, successful_matches={}, total_quote_used={}, total_amount_used={}", 
                  order_after_match.id, successful_matches.len(), total_quote_used, total_amount_used);
@@ -836,10 +828,9 @@ pub(crate) fn process_submit_order(
         let mut executor_guard = executor.lock();
         for match_result in &matches {
             // skip_db_updates=false로 설정하여 각 매칭마다 DB 명령 전송
-            if let Err(e) = executor_guard.execute_trade(match_result, false) {
-                // 에러 발생 시 로그 기록
-                eprintln!("Failed to execute trade: {}", e);
-            }
+            // 실패한 체결을 Kafka·주문 상태 갱신으로 정상 전파하지 않는다.
+            executor_guard.execute_trade(match_result, false)
+                .context("Limit trade settlement failed")?;
         }
     }
     

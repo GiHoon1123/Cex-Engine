@@ -943,6 +943,9 @@ mod startup_tests;
 #[cfg(test)]
 mod reservation_tests;
 
+#[cfg(test)]
+mod settlement_pipeline_tests;
+
 
 #[cfg(test)]
 impl HighPerformanceEngine {
