@@ -96,3 +96,5 @@ PATH=/usr/local/bin:$PATH python3 scripts/verify_durable_acceptance.py
 이 검토로 주문장·캐시·DB·이벤트의 단일 확정은 완성되지 않았다. Matcher가 주문장을 먼저 바꾸고, 여러 체결 중 앞선 성공은 뒤 실패에서 복구되지 않으며, 캐시 성공 뒤 DB 전달 실패도 별도다. 영속 접수의 실행 순서·재생과 단일 처리자 보장도 미완료다. [이전 결정의 한계](004-atomic-trade-cache-settlement.md#보장-범위와-남은-과제)를 유지한다.
 
 관련 커밋: `ac6ae22`(정확한 DB 해독·누락 컬럼·7개 테스트), `f6437da`(정확한 요청·3개 테스트), `785630a`(격리 실행기). 플랫폼 관련 커밋은 연결 문서에 기록한다.
+
+후속: [신규 주문 전체의 메모리 확정](006-atomic-order-memory-commit.md). 주문장·여러 체결·예약 반환의 한계를 메모리 경계에서 해결했으며 DB·Kafka·복구 한계는 유지한다.
