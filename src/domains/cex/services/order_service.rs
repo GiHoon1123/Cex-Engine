@@ -82,8 +82,7 @@ impl OrderService {
     /// 2. 권한 확인 (본인 주문인지)
     /// 3. 취소 가능 상태 확인 (pending/partial만 가능)
     /// 4. 엔진에 취소 요청
-    /// 5. DB에서 주문 상태 업데이트 (cancelled)
-    /// 6. 잠긴 잔고 해제
+    /// 5. 실행 결과 반환, 플랫폼 상태 반영은 결과 소비자의 책임
     /// 
     /// # Errors
     /// - 주문이 존재하지 않음
@@ -139,22 +138,18 @@ impl OrderService {
             order.quote_mint.clone(),
         );
 
-        let _cancelled_entry = {
+        let cancelled_entry = {
             self.engine
                 .cancel_order(order_id, user_id, &trading_pair)
                 .await
                 .context("Failed to cancel order in engine")?
         };
 
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // 5. DB에서 주문 상태 업데이트
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        let updated_order = order_repo
-            .update_status(order_id, "cancelled")
-            .await
-            .context("Failed to update order status to cancelled")?;
-
-        Ok(updated_order)
+        // 엔진은 실행 결과만 반환한다. 플랫폼 주문 상태를 여기서 먼저
+        // 변경하면 취소 소비자가 중복으로 오인해 예약 해제를 건너뛸 수 있다.
+        let mut result = entry_to_order(&cancelled_entry);
+        result.status = "cancelled".into();
+        Ok(result)
     }
 
 

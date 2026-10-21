@@ -5,7 +5,7 @@ use super::*;
 fn platform_reservation_is_not_written_to_database_twice() -> Result<()> {
     let mut engine = HighPerformanceEngine::new_bench();
     engine.bench_set_balance(101, "USDT", Decimal::from(1000), Decimal::ZERO);
-    let (sender, receiver) = crossbeam::channel::unbounded();
+
     let order = OrderEntry {
         id: 1,
         user_id: 101,
@@ -24,9 +24,6 @@ fn platform_reservation_is_not_written_to_database_twice() -> Result<()> {
     let state = engine.state.as_mut().unwrap();
     super::super::threads::process_submit_order(
         order,
-        None,
-        Some(&sender),
-        None,
         &mut state.orderbooks,
         &state.matcher,
         &mut state.executor,
@@ -35,8 +32,6 @@ fn platform_reservation_is_not_written_to_database_twice() -> Result<()> {
     let balance = executor.balance_cache().get_balance(101, "USDT").unwrap();
     assert_eq!(balance.available, Decimal::from(800));
     assert_eq!(balance.locked, Decimal::from(200));
-    assert!(!receiver
-        .try_iter()
-        .any(|command| matches!(command, DbCommand::UpdateBalance { .. })));
+
     Ok(())
 }

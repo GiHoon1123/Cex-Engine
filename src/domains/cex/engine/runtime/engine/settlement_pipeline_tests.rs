@@ -83,22 +83,15 @@ fn settlement_failure_aborts_success_followups_for_limit_and_market() -> Result<
         engine.bench_submit_direct(order(2, 102, "sell", false))?;
         // 주문장에는 매도 2개가 있지만 예약이 1개뿐인 손상 상태를 주입한다.
         engine.bench_set_balance(102, "SOL", Decimal::from(8), Decimal::ONE);
-        let (sender, receiver) = crossbeam::channel::unbounded();
+
         let state = engine.state.as_mut().unwrap();
         let result = super::super::threads::process_submit_order(
             order(1, 101, "buy", market),
-            None,
-            Some(&sender),
-            None,
             &mut state.orderbooks,
             &state.matcher,
             &mut state.executor,
         );
         assert!(result.is_err(), "정산 실패를 처리 성공으로 반환했다");
-        assert!(
-            receiver.try_recv().is_err(),
-            "실패 후 주문 상태·예약 해제 명령을 발행했다"
-        );
         let executor = &engine.state.as_ref().unwrap().executor;
         let cache = executor.balance_cache();
         // 후보 전체가 실패했으므로 실행 캐시의 신규 예약도 반영하지 않는다.
@@ -160,13 +153,10 @@ fn submission_second_fill_failure_preserves_entire_book_and_cache() -> Result<()
                 incoming.amount = Decimal::from(4);
                 incoming.remaining_amount = incoming.amount;
             }
-            let (sender, receiver) = crossbeam::channel::unbounded();
+
             let state = engine.state.as_mut().unwrap();
             let result = super::super::threads::process_submit_order(
                 incoming,
-                None,
-                Some(&sender),
-                None,
                 &mut state.orderbooks,
                 &state.matcher,
                 &mut state.executor,
@@ -187,10 +177,6 @@ fn submission_second_fill_failure_preserves_entire_book_and_cache() -> Result<()
                     .test_balances_snapshot(),
                 before_cache,
                 "앞 체결이나 신규 주문 예약이 일부 반영됐다"
-            );
-            assert!(
-                receiver.try_recv().is_err(),
-                "실패 전에 후속 DB 명령이 발행됐다"
             );
         }
     }
@@ -460,13 +446,10 @@ fn submission_refund_precision_failure_preserves_book_and_entire_cache() -> Resu
         .executor
         .balance_cache()
         .test_balances_snapshot();
-    let (sender, receiver) = crossbeam::channel::unbounded();
+
     let state = engine.state.as_mut().unwrap();
     assert!(super::super::threads::process_submit_order(
         order(1, 101, "buy", false),
-        None,
-        Some(&sender),
-        None,
         &mut state.orderbooks,
         &state.matcher,
         &mut state.executor
@@ -483,7 +466,6 @@ fn submission_refund_precision_failure_preserves_book_and_entire_cache() -> Resu
             .test_balances_snapshot(),
         before_cache
     );
-    assert!(receiver.try_recv().is_err());
     Ok(())
 }
 

@@ -24,6 +24,12 @@ pub struct EngineHandle {
 }
 
 impl EngineHandle {
+    /// 닫힘은 정상 정지 또는 출력 실패로 더 이상 명령을 실행하지 않음을 뜻한다.
+    /// 브로커 연결이나 프로세스 장애 복구 가능성 전체를 검증하는 상태는 아니다.
+    pub fn is_accepting(&self) -> bool {
+        !self.closed.load(Ordering::Acquire)
+    }
+
     /// 모든 진입 명령은 큐가 가득 차면 즉시 오류다. timeout 전에 동기 send로
     /// Tokio 실행 스레드를 막지 않는다. 이미 접수한 주문의 복구는 별도 계약이다.
     fn send_order(&self, command: OrderCommand) -> Result<()> {

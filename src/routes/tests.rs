@@ -18,11 +18,14 @@ use tower::ServiceExt;
 /// Bench 엔진은 Kafka와 저장 워커를 생성하지 않는다. 아래 테스트는 경로 선택과
 /// 입력 검증까지만 실행하므로 DB·Kafka·Solana 서버의 상태에 의존하지 않는다.
 fn app() -> Router {
+    app_with_engine(HighPerformanceEngine::new_bench().handle())
+}
+
+fn app_with_engine(engine: crate::domains::cex::engine::runtime::EngineHandle) -> Router {
     let pool = PgPoolOptions::new()
         .connect_lazy("postgresql://unused:unused@127.0.0.1:1/unused")
         .expect("valid lazy pool configuration");
     let db = Database::noop(pool);
-    let engine = HighPerformanceEngine::new_bench().handle();
     let state = AppState {
         db: db.clone(),
         wallet_state: WalletState::new(db.clone()).expect("wallet client configuration"),
@@ -133,4 +136,21 @@ async fn cancellation_still_requires_user_id() {
     let body = to_bytes(response.into_body(), 1024).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["error"], "Missing user_id query parameter");
+}
+
+#[tokio::test]
+async fn output_failure_closed_handle_reports_unavailable_health() {
+    let mut engine = HighPerformanceEngine::new_bench();
+    let handle = engine.handle();
+    engine.stop().await.unwrap();
+    let response = app_with_engine(handle)
+        .oneshot(
+            Request::builder()
+                .uri("/api/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
 }

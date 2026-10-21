@@ -13,10 +13,8 @@ use rust_decimal::Decimal;
 use std::collections::HashMap;
 
 pub(crate) struct AppliedSubmission {
-    pub order: OrderEntry,
+    pub order_id: u64,
     pub matches: Vec<MatchResult>,
-    pub total_quote: Decimal,
-    pub total_amount: Decimal,
 }
 
 /// 호출자는 주문장과 실행 캐시를 독점 대여한다. 실행 중에는 단일 워커만 소유한다.
@@ -89,9 +87,7 @@ pub(crate) fn apply(
     );
     executor.balance_cache_mut().commit_prepared(prepared);
     Ok(AppliedSubmission {
-        order: plan.order,
+        order_id: plan.order.id,
         matches: plan.matches,
-        total_quote: plan.total_quote,
-        total_amount: plan.total_amount,
     })
 }

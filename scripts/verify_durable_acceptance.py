@@ -182,9 +182,9 @@ try:
         conflict, _ = http(f"http://127.0.0.1:{engine_port}/api/cex/orders", dict(engine_payload, amount="3"))
         assert conflict == 409
         deadline = time.monotonic() + 5
-        while "handle_submit_order 완료" not in engine_log.read_text() and time.monotonic() < deadline:
+        while "output_completed" not in engine_log.read_text() and time.monotonic() < deadline:
             time.sleep(0.1)
-        assert engine_log.read_text().count("handle_submit_order 완료") == 1
+        assert engine_log.read_text().count("output_completed") == 1
         assert sql("SELECT count(*) FROM engine_order_receipts") == "1"
         assert sql("SELECT count(*) FROM order_submissions") == "1"
         assert sql("SELECT count(*) FROM orders") == "1"
@@ -200,9 +200,9 @@ try:
         assert success == 201, (success, second)
         assert sql("SELECT count(*) FROM engine_order_receipts") == "2"
         deadline = time.monotonic() + 5
-        while engine_log.read_text().count("handle_submit_order 완료") != 2 and time.monotonic() < deadline:
+        while engine_log.read_text().count("output_completed") != 2 and time.monotonic() < deadline:
             time.sleep(0.1)
-        assert engine_log.read_text().count("handle_submit_order 완료") == 2
+        assert engine_log.read_text().count("output_completed") == 2
         assert sql("SELECT available::text||'|'||locked::text FROM user_balances WHERE user_id=101") == "700.000000000|300.000000000"
         assert len(forwarded) == 2
         evidence["checks"].append({"case": "java_verifies_real_rust_receipt", "platform_http": success,

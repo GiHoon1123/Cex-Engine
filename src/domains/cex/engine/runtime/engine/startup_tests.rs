@@ -6,7 +6,6 @@
 use super::*;
 use crate::domains::cex::engine::Engine;
 use sqlx::{Executor as _, PgPool};
-use std::path::PathBuf;
 
 async fn create_schema(pool: &PgPool) -> Result<()> {
     // 테스트 대상이 읽는 계약만 구성한다. 운영 마이그레이션이나 다른 도메인을
@@ -35,33 +34,20 @@ async fn create_schema(pool: &PgPool) -> Result<()> {
     Ok(())
 }
 
-fn create_engine(pool: PgPool) -> (HighPerformanceEngine, PathBuf) {
-    let mut engine = HighPerformanceEngine::new(Database::noop(pool));
-    // 테스트 명령의 Kafka 주소는 사용하지 않는 루프백 포트로 설정한다.
-    // 생성 시 연결하던 기존 코드에서도 실제 브로커에 접근하지 않게 하고,
-    // 각 테스트의 WAL 경로를 분리해 실행 중인 엔진 파일과 섞이지 않게 한다.
-    engine.kafka_producer = None;
-    let wal_dir = std::env::temp_dir().join(format!("cex-startup-{}", uuid::Uuid::new_v4()));
-    engine.wal_dir = wal_dir.clone();
-    (engine, wal_dir)
+fn create_engine(pool: PgPool) -> HighPerformanceEngine {
+    // 검증 실행기가 지정한 격리 디비와 사용하지 않는 루프백 브로커만 사용한다.
+    HighPerformanceEngine::new(Database::noop(pool))
 }
 
-async fn finish_engine(engine: &mut HighPerformanceEngine, wal_dir: &PathBuf) -> Result<()> {
-    // 회귀를 재현하는 구버전은 잘못 시작될 수 있으므로 assert 전에 정리한다.
-    // 실패한 시작의 정지도 안전해야 하며, 테스트 DB 외의 파일을 지우지 않는다.
-    engine.stop().await?;
-    if wal_dir.exists() {
-        std::fs::remove_dir_all(wal_dir)?;
-    }
-    Ok(())
+async fn finish_engine(engine: &mut HighPerformanceEngine) -> Result<()> {
+    // 회귀가 잘못 시작되더라도 검증 전에 이 실행의 워커를 회수한다.
+    engine.stop().await
 }
 
 async fn assert_start_blocked(pool: PgPool, expected_reason: &str) -> Result<()> {
-    let (mut engine, wal_dir) = create_engine(pool);
+    let mut engine = create_engine(pool);
     let result = engine.start().await;
-    let started_worker = engine.engine_thread.is_some()
-        || engine.wal_thread.is_some()
-        || engine.db_writer_thread.is_some();
+    let started_worker = engine.engine_thread.is_some() || engine.output_thread.is_some();
     let published_balance = engine
         .state
         .as_mut()
@@ -70,7 +56,7 @@ async fn assert_start_blocked(pool: PgPool, expected_reason: &str) -> Result<()>
         .balance_cache()
         .get_balance(101, "USDT")
         .is_some();
-    finish_engine(&mut engine, &wal_dir).await?;
+    finish_engine(&mut engine).await?;
 
     assert!(result.is_err(), "불완전한 상태에서 시작을 허용했다");
     let reason = format!("{:#}", result.unwrap_err());
@@ -241,7 +227,7 @@ async fn startup_preserves_exact_balances_with_terminal_order_history(pool: PgPo
     )
     .await?;
 
-    let (mut engine, wal_dir) = create_engine(pool.clone());
+    let mut engine = create_engine(pool.clone());
     engine.start().await?;
     let balance = engine.handle().get_balance(101, "USDT").await?;
     let zero_balance = engine.handle().get_balance(102, "SOL").await?;
@@ -249,7 +235,7 @@ async fn startup_preserves_exact_balances_with_terminal_order_history(pool: PgPo
         .handle()
         .get_orderbook(&TradingPair::new("SOL".into(), "USDT".into()), None)
         .await?;
-    finish_engine(&mut engine, &wal_dir).await?;
+    finish_engine(&mut engine).await?;
 
     assert_eq!(balance, (Decimal::new(100250000001, 9), Decimal::ZERO));
     assert_eq!(zero_balance, (Decimal::ZERO, Decimal::ZERO));
@@ -283,10 +269,10 @@ async fn startup_reads_one_repeatable_read_readonly_snapshot(pool: PgPool) -> Re
     )
     .await?;
 
-    let (mut engine, wal_dir) = create_engine(pool);
+    let mut engine = create_engine(pool);
     engine.start().await?;
     let balance = engine.handle().get_balance(101, "USDT").await?;
-    finish_engine(&mut engine, &wal_dir).await?;
+    finish_engine(&mut engine).await?;
     assert_eq!(balance, (Decimal::new(100, 0), Decimal::ZERO));
     Ok(())
 }
@@ -300,7 +286,7 @@ async fn duplicate_start_does_not_reload_or_replace_running_state(pool: PgPool) 
     )
     .await?;
 
-    let (mut engine, wal_dir) = create_engine(pool);
+    let mut engine = create_engine(pool);
     engine.start().await?;
     // 엔진의 현재 상태를 DB와 다르게 만들어 중복 start가 이를 덮지 않는지 확인한다.
     // 워커 소유 상태는 직접 만지지 않고, 직렬화된 예약 명령으로 90/10을 만든다.
@@ -310,7 +296,7 @@ async fn duplicate_start_does_not_reload_or_replace_running_state(pool: PgPool) 
         .await?;
     let result = engine.start().await;
     let balance = engine.handle().get_balance(101, "USDT").await?;
-    finish_engine(&mut engine, &wal_dir).await?;
+    finish_engine(&mut engine).await?;
 
     assert!(result.unwrap_err().to_string().contains("already running"));
     assert_eq!(balance, (Decimal::new(90, 0), Decimal::new(10, 0)));
@@ -320,10 +306,10 @@ async fn duplicate_start_does_not_reload_or_replace_running_state(pool: PgPool) 
 #[sqlx::test(migrations = false)]
 async fn empty_database_starts_and_stopped_instance_cannot_restart(pool: PgPool) -> Result<()> {
     create_schema(&pool).await?;
-    let (mut engine, wal_dir) = create_engine(pool);
+    let mut engine = create_engine(pool);
     engine.start().await?;
     let balance = engine.handle().get_balance(101, "USDT").await?;
-    finish_engine(&mut engine, &wal_dir).await?;
+    finish_engine(&mut engine).await?;
     let result = engine.start().await;
 
     assert_eq!(balance, (Decimal::ZERO, Decimal::ZERO));

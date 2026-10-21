@@ -1,1747 +1,280 @@
-// =====================================================
-// Threads - 스레드 루프 함수들
-// =====================================================
-// 역할: 엔진 스레드와 WAL 스레드의 메인 루프 구현
-//
-// 구조:
-// - engine_thread_loop(): 주문 처리 루프 (Core 0)
-// - wal_thread_loop(): WAL 쓰기 루프 (Core 1)
-// =====================================================
-
-use std::collections::HashMap;
-use std::sync::Arc;
-use anyhow::{Result, Context};
-use crossbeam::channel::Receiver;
+//! 엔진 워커는 거래 상태를 소유한다. 입력 대기 외에 외부 입출력이나
+//! 스레드 생성·런타임 생성·디비 쓰기·동기 로그를 수행하지 않는다.
+use super::{
+    balance_commands::BalanceCommand,
+    commands::OrderCommand,
+    config::configure_engine_thread,
+    engine::EngineState,
+    output::{self, OutputBatch},
+    submission::{self, AppliedSubmission},
+};
+use crate::domains::cex::engine::{
+    amount,
+    executor::Executor,
+    matcher::Matcher,
+    orderbook::OrderBook,
+    types::{OrderEntry, TradingPair},
+};
+use anyhow::{Context, Result};
+use crossbeam::channel::{Receiver, Sender};
 use rust_decimal::Decimal;
-use sqlx::PgPool;
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
-use crate::domains::cex::engine::types::{TradingPair, OrderEntry, MatchResult};
-use crate::domains::cex::engine::orderbook::OrderBook;
-use crate::domains::cex::engine::matcher::Matcher;
-use crate::domains::cex::engine::executor::Executor;
-use crate::domains::cex::engine::wal::{WalEntry, WalWriter};
-use crate::shared::kafka::{KafkaProducer, TradeExecutedEvent, OrderCancelledEvent};
-use chrono::Utc;
-
-use super::commands::OrderCommand;
-use super::balance_commands::BalanceCommand;
-use super::config::CoreConfig;
-
-// =====================================================
-// 엔진 스레드 루프
-// =====================================================
-// 역할: 모든 주문을 순차적으로 처리하는 싱글 스레드 루프
-//
-// 처리 과정:
-// 1. 코어 고정 (Core 0)
-// 2. 실시간 스케줄링 (SCHED_FIFO, 우선순위 99)
-// 3. 주문 명령 수신 루프
-// 4. 각 명령 처리 (SubmitOrder, CancelOrder 등)
-// 5. 결과를 oneshot 채널로 반환
-// =====================================================
-
-/// 엔진 스레드 메인 루프
-/// 
-/// # Arguments
-/// * `order_rx` - 주문 명령 수신 채널
-/// * `balance_rx` - 잔고 업데이트 명령 수신 채널 (우선순위 높음)
-/// * `wal_tx` - WAL 메시지 전송 채널
-/// * `db_tx` - DB 명령 전송 채널
-/// * `orderbooks` - 거래쌍별 오더북 (이 스레드로 소유권 이동)
-/// * `matcher` - 매칭 엔진 (이 스레드 소유)
-/// * `executor` - 체결 실행 엔진 (이 스레드 소유)
-/// * `running` - 실행 중 여부 플래그
-/// 
-/// # 처리 흐름 (우선순위 기반)
-/// ```
-/// loop {
-///     // 1. 잔고 업데이트 큐 우선 확인 (논블로킹)
-///     match balance_rx.try_recv() {
-///         Ok(cmd) => {
-///             handle_update_balance(cmd);
-///             continue;  // 다음 루프로
-///         }
-///         Err(TryRecvError::Empty) => {
-///             // 큐가 비어있음, 주문 큐 확인
-///         }
-///         Err(TryRecvError::Disconnected) => break,
-///     }
-///     
-///     // 2. 주문 큐 확인 (블로킹)
-///     match order_rx.recv() {
-///         Ok(cmd) => {
-///             match cmd {
-///                 SubmitOrder → ...
-///                 CancelOrder → ...
-///                 ...
-///             }
-///         }
-///         Err(_) => break,
-///     }
-/// }
-/// ```
-/// 
-/// # 우선순위 전략
-/// - 입금 큐 우선: 입금이 선행되어야 주문 가능
-/// - 주문 큐: 입금 큐가 비어있을 때만 처리
-/// 
-/// 주문장과 실행 캐시는 이 스레드가 소유한다. 현재 성능은 별도 측정이 필요하다.
-pub fn engine_thread_loop(
-    order_rx: Receiver<OrderCommand>,
-    balance_rx: Receiver<BalanceCommand>,
-    wal_tx: Option<crossbeam::channel::Sender<WalEntry>>,
-    db_tx: Option<crossbeam::channel::Sender<super::db_commands::DbCommand>>,
-    kafka_producer: Option<Arc<crate::shared::kafka::KafkaProducer>>,
-    mut orderbooks: HashMap<TradingPair, OrderBook>,
-    matcher: Matcher,
-    mut executor: Executor,
-    running: Arc<std::sync::atomic::AtomicBool>,
-) {
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 1. 코어 고정 (Core 0에 고정) - PROD 환경만
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    
-    let config = CoreConfig::from_env();
-    // 엔진 스레드를 Core 0에 고정 (주문 처리 전용)
-    // PROD: Core 0 고정, DEV: 코어 고정 안 함
-    if config.engine_core != 999 {
-        eprintln!("[Engine Thread] Pinning to Core {}", config.engine_core);
-        CoreConfig::set_core(Some(config.engine_core));
-    } else {
-        eprintln!("[Engine Thread] Core pinning disabled (dev mode)");
-        CoreConfig::set_core(None);  // 코어 고정 비활성화 (dev 환경)
-    }
-    
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 2. 실시간 스케줄링 설정 (우선순위 99) - PROD 환경만
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 실제 거래소에서 사용하는 방식: 최우선순위로 엔진 스레드 실행
-    // Core 0을 독점하여 최대 성능 보장
-    // 주의: CAP_SYS_NICE 권한 필요 (Docker: --cap-add=SYS_NICE)
-    eprintln!("[Engine Thread] Setting real-time scheduling priority: 99");
-    CoreConfig::set_realtime_scheduling(99);
-    
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 2. 메인 루프 (우선순위 기반)
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    
-    // 채널 닫힘 상태 추적
-    let mut balance_closed = false;
-    let mut order_closed = false;
-    
-    loop {
-        // running 플래그 확인
-        if !running.load(std::sync::atomic::Ordering::Relaxed) {
+/// 출력 송신자는 이 함수로 이동하고 복제하지 않는다. 출력 공간을 먼저 검사한
+/// 다음 한 명령을 처리해 한 배치를 전달하므로, 확정 도중 큐 포화가 생기지 않는다.
+/// 출력 소비자는 공간을 늘리기만 하며 제어 객체가 수신자 수명을 유지한다.
+pub(super) fn engine_thread_loop(
+    orders: Receiver<OrderCommand>,
+    balances: Receiver<BalanceCommand>,
+    output: Option<Sender<OutputBatch>>,
+    mut state: EngineState,
+    running: Arc<AtomicBool>,
+    closed: Arc<AtomicBool>,
+) -> EngineState {
+    configure_engine_thread();
+    while running.load(Ordering::Acquire) && !closed.load(Ordering::Acquire) {
+        if !output::has_capacity(output.as_ref()) {
+            // 출력 소비자를 추월하지 않는다. 채널 전송에서 잠들거나 확정 결과를
+            // 버리지 않고, 입력을 큐에 남겨 압력을 입구까지 전달한다.
+            // 이 진행 제어는 유한 버퍼의 필수 제약이며 디비·네트워크 대기가 아니다.
+            std::hint::spin_loop();
+            continue;
+        }
+        // 기존 잔고 우선 정책은 유지한다. 두 입력 큐의 재생 순서·공정성은
+        // 별도 계약이 필요하며, 이번 출력 순서 보장과 혼동하지 않는다.
+        if let Ok(BalanceCommand::UpdateBalance {
+            user_id,
+            mint,
+            available_delta,
+            response,
+        }) = balances.try_recv()
+        {
+            state
+                .executor
+                .balance_cache_mut()
+                .add_available(user_id, &mint, available_delta);
+            let _ = response.send(Ok(()));
+            continue;
+        }
+        let command = match orders.recv_timeout(Duration::from_millis(1)) {
+            Ok(command) => command,
+            Err(crossbeam::channel::RecvTimeoutError::Timeout) => continue,
+            Err(crossbeam::channel::RecvTimeoutError::Disconnected) => break,
+        };
+        // 출력 실패나 정상 종료를 본 뒤에는 새 상태 변경을 시작하지 않는다.
+        // 검사와 처리가 경쟁한 마지막 명령의 출력도 살아 있는 큐에 남는다.
+        if closed.load(Ordering::Acquire) || !running.load(Ordering::Acquire) {
             break;
         }
-        
-        // 두 채널 모두 닫혔으면 종료
-        if balance_closed && order_closed {
-            break;
-        }
-        
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // 1. 잔고 업데이트 큐 우선 확인 (논블로킹)
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // 입금이 선행되어야 주문이 가능하므로 우선순위를 높게 설정
-        if !balance_closed {
-            match balance_rx.try_recv() {
-            Ok(cmd) => {
-                // 잔고 업데이트 처리
-                match cmd {
-                    BalanceCommand::UpdateBalance { user_id, mint, available_delta, response } => {
-                        handle_update_balance(
-                            user_id,
-                            mint,
-                            available_delta,
-                            response,
-                            wal_tx.as_ref(),
-                            db_tx.as_ref(),
-                            &mut executor,
-                        );
-                    }
-                }
-                continue; // 다음 루프로 (주문 큐 확인 전에 다시 잔고 큐 확인)
-            }
-            Err(crossbeam::channel::TryRecvError::Empty) => {
-                // 큐가 비어있음, 주문 큐 확인
-            }
-                Err(crossbeam::channel::TryRecvError::Disconnected) => {
-                    // balance_rx 채널이 닫힘 (sender가 닫혔음)
-                    balance_closed = true;
-                }
-            }
-        }
-        
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // 2. 주문 큐 확인 (타임아웃 사용)
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // 잔고 큐가 비어있을 때만 주문 처리
-        // 짧은 타임아웃(1ms)을 사용하여 잔고 큐를 주기적으로 확인
-        if !order_closed {
-            use std::time::Duration;
-            match order_rx.recv_timeout(Duration::from_millis(1)) {
-            Ok(cmd) => {
-                // running 플래그 확인 (명령 처리 전)
-                if !running.load(std::sync::atomic::Ordering::Relaxed) {
-                    break;
-                }
-                
-                // 명령 처리
-                match cmd {
-                    OrderCommand::SubmitOrder { order, response } => {
-                        eprintln!("[Engine Thread] OrderCommand::SubmitOrder 수신: order_id={}, user_id={}, order_type={}, order_side={}, price={:?}, amount={}", 
-                                 order.id, order.user_id, order.order_type, order.order_side, order.price, order.amount);
-                        handle_submit_order(
-                            order,
-                            response,
-                            wal_tx.as_ref(),
-                            db_tx.as_ref(),
-                            kafka_producer.as_ref(),
-                            &mut orderbooks,
-                            &matcher,
-                            &mut executor,
-                        );
-                    }
-                    OrderCommand::CancelOrder { order_id, user_id, trading_pair, response } => {
-                        handle_cancel_order(
-                            order_id,
-                            user_id,
-                            trading_pair,
-                            response,
-                            wal_tx.as_ref(),
-                            db_tx.as_ref(),
-                            kafka_producer.as_ref(),
-                            &mut orderbooks,
-                            &mut executor,
-                        );
-                    }
-                    OrderCommand::GetOrderbook { trading_pair, depth, response } => {
-                        handle_get_orderbook(
-                            trading_pair,
-                            depth,
-                            response,
-                            &mut orderbooks,
-                        );
-                    }
-                    OrderCommand::GetBalance { user_id, mint, response } => {
-                        handle_get_balance(
-                            user_id,
-                            mint,
-                            response,
-                            &mut executor,
-                        );
-                    }
-                    OrderCommand::LockBalance { user_id, mint, amount, response } => {
-                        handle_lock_balance(
-                            user_id,
-                            mint,
-                            amount,
-                            response,
-                            wal_tx.as_ref(),
-                            db_tx.as_ref(),
-                            &mut executor,
-                        );
-                    }
-                    OrderCommand::UnlockBalance { user_id, mint, amount, response } => {
-                        handle_unlock_balance(
-                            user_id,
-                            mint,
-                            amount,
-                            response,
-                            wal_tx.as_ref(),
-                            db_tx.as_ref(),
-                            &mut executor,
-                        );
-                    }
-                }
-            }
-                Err(crossbeam::channel::RecvTimeoutError::Timeout) => {
-                    // 타임아웃: 잔고 큐를 다시 확인하기 위해 루프 계속
-                    // 하지만 balance_closed가 true이면 order_rx도 닫혔는지 확인
-                    if balance_closed {
-                        // balance_rx는 이미 닫혔음, order_rx도 닫혔는지 확인
-                        match order_rx.try_recv() {
-                            Err(crossbeam::channel::TryRecvError::Disconnected) => {
-                                // order_rx도 닫혔음
-                                order_closed = true;
-                                break; // 두 채널 모두 닫혔으므로 종료
-                            }
-                            Ok(cmd) => {
-                                // order_rx에 메시지가 있으면 처리
-                                if !running.load(std::sync::atomic::Ordering::Relaxed) {
-                                    break;
-                                }
-                                match cmd {
-                                    OrderCommand::SubmitOrder { order, response } => {
-                                        handle_submit_order(
-                                            order,
-                                            response,
-                                            wal_tx.as_ref(),
-                                            db_tx.as_ref(),
-                                            kafka_producer.as_ref(),
-                                            &mut orderbooks,
-                                            &matcher,
-                                            &mut executor,
-                                        );
-                                    }
-                                    OrderCommand::CancelOrder { order_id, user_id, trading_pair, response } => {
-                                        handle_cancel_order(
-                                            order_id,
-                                            user_id,
-                                            trading_pair,
-                                            response,
-                                            wal_tx.as_ref(),
-                                            db_tx.as_ref(),
-                                            kafka_producer.as_ref(),
-                                            &mut orderbooks,
-                                            &mut executor,
-                                        );
-                                    }
-                                    OrderCommand::GetOrderbook { trading_pair, depth, response } => {
-                                        handle_get_orderbook(
-                                            trading_pair,
-                                            depth,
-                                            response,
-                                            &mut orderbooks,
-                                        );
-                                    }
-                                    OrderCommand::GetBalance { user_id, mint, response } => {
-                                        handle_get_balance(
-                                            user_id,
-                                            mint,
-                                            response,
-                                            &mut executor,
-                                        );
-                                    }
-                                    OrderCommand::LockBalance { user_id, mint, amount, response } => {
-                                        handle_lock_balance(
-                                            user_id,
-                                            mint,
-                                            amount,
-                                            response,
-                                            wal_tx.as_ref(),
-                                            db_tx.as_ref(),
-                                            &mut executor,
-                                        );
-                                    }
-                                    OrderCommand::UnlockBalance { user_id, mint, amount, response } => {
-                                        handle_unlock_balance(
-                                            user_id,
-                                            mint,
-                                            amount,
-                                            response,
-                                            wal_tx.as_ref(),
-                                            db_tx.as_ref(),
-                                            &mut executor,
-                                        );
-                                    }
-                                }
-                                continue;
-                            }
-                            Err(crossbeam::channel::TryRecvError::Empty) => {
-                                // order_rx는 비어있지만 아직 열려있음
-                                continue;
-                            }
+        match command {
+            OrderCommand::SubmitOrder { order, response } => {
+                let order_id = order.id;
+                match process_submit_order(
+                    order,
+                    &mut state.orderbooks,
+                    &state.matcher,
+                    &mut state.executor,
+                ) {
+                    Ok(applied) => {
+                        // 실제 제출 경로는 응답 대기 없이 접수 증명을 반환한다.
+                        // 결과를 기다리는 호출자에게만 체결 목록을 별도로 복사한다.
+                        let reply = response.as_ref().map(|_| applied.matches.clone());
+                        if output.is_some() {
+                            output::publish(
+                                output.as_ref(),
+                                OutputBatch::submitted(applied, &state.executor),
+                            );
                         }
-                    } else {
-                        continue;
+                        if let Some(response) = response {
+                            let _ = response.send(Ok(reply.unwrap()));
+                        }
+                    }
+                    Err(error) => {
+                        if output.is_some() {
+                            output::publish(
+                                output.as_ref(),
+                                OutputBatch::Rejected {
+                                    order_id,
+                                    reason: error.to_string(),
+                                },
+                            );
+                        }
+                        if let Some(response) = response {
+                            let _ = response.send(Err(error));
+                        }
                     }
                 }
-                Err(crossbeam::channel::RecvTimeoutError::Disconnected) => {
-                    // order_rx 채널이 닫힘 (sender가 닫혔음)
-                    order_closed = true;
-                    continue;
+            }
+            OrderCommand::CancelOrder {
+                order_id,
+                user_id,
+                trading_pair,
+                response,
+            } => {
+                let result = cancel_order(
+                    order_id,
+                    user_id,
+                    &trading_pair,
+                    &mut state.orderbooks,
+                    &mut state.executor,
+                );
+                if let Ok(order) = &result {
+                    if output.is_some() {
+                        output::publish(output.as_ref(), OutputBatch::Cancelled(order.clone()));
+                    }
                 }
+                let _ = response.send(result);
             }
-        }
-    }
-}
-
-// =====================================================
-// 명령 처리 핸들러들
-// =====================================================
-
-/// SubmitOrder 명령 처리
-/// 
-/// # 처리 과정
-/// 1. 원본을 읽어 후보 매칭과 전체 잔액·예약 반환을 준비
-/// 2. 같은 워커의 독점 대여 안에서 주문장·캐시를 메모리에 확정
-/// 3. 기존 DB·Kafka 후속 전달 (영속 확정과 메모리는 별도 경계)
-/// 4. response가 있을 때만 결과 반환. 영속 접수 HTTP는 실행 완료 증명이 아님
-fn handle_submit_order(
-    order: OrderEntry,
-    response: Option<tokio::sync::oneshot::Sender<Result<Vec<MatchResult>>>>,
-    wal_tx: Option<&crossbeam::channel::Sender<WalEntry>>,
-    db_tx: Option<&crossbeam::channel::Sender<super::db_commands::DbCommand>>,
-    kafka_producer: Option<&Arc<KafkaProducer>>,
-    orderbooks: &mut HashMap<TradingPair, OrderBook>,
-    matcher: &Matcher,
-    executor: &mut Executor,
-) {
-    eprintln!("[Engine Thread] handle_submit_order 호출: order_id={}, user_id={}, order_type={}, order_side={}, price={:?}, amount={}", 
-             order.id, order.user_id, order.order_type, order.order_side, order.price, order.amount);
-    let result = process_submit_order(order, wal_tx, db_tx, kafka_producer, orderbooks, matcher, executor);
-    eprintln!("[Engine Thread] handle_submit_order 완료: matches_count={}", result.as_ref().map(|m| m.len()).unwrap_or(0));
-    
-    // response가 Some인 경우만 응답 전송 (비동기 처리 시 None)
-    if let Some(tx) = response {
-        let _ = tx.send(result);
-    }
-}
-
-pub(crate) fn process_submit_order(
-    order: OrderEntry,
-    _wal_tx: Option<&crossbeam::channel::Sender<WalEntry>>,
-    db_tx: Option<&crossbeam::channel::Sender<super::db_commands::DbCommand>>,
-    kafka_producer: Option<&Arc<KafkaProducer>>,
-    orderbooks: &mut HashMap<TradingPair, OrderBook>,
-    matcher: &Matcher,
-    executor: &mut Executor,
-) -> Result<Vec<MatchResult>> {
-    let is_market_order=order.order_side=="market";
-    let applied={
-        // 이 상태는 현재 워커만 소유한다. &mut 대여가 끝나기 전에는 다음
-        // 명령을 처리하지 않으므로 공유 락 없이 준비·확정을 수행한다.
-        super::submission::apply(order,orderbooks,matcher,executor)?
-    };
-    let order_after_match=applied.order;
-    let matches=applied.matches;
-    // 이 아래는 기존 후속 전달 경계다. 메모리 확정과 DB·Kafka는 아직 한 트랜잭션이 아니다.
-    // 시장가의 기존 후속 이벤트 전달. 메모리 확정은 위에서 완료됐다.
-    if is_market_order {
-        use chrono::Utc;
-        
-        // 디버깅: 매칭 결과 확인
-        eprintln!("[Market Order Debug] order_id={}, initial_matches={}, remaining_quote_amount={:?}, remaining_amount={}", 
-                 order_after_match.id, matches.len(), order_after_match.remaining_quote_amount, order_after_match.remaining_amount);
-        
-        // 기존 시장가 이벤트 전달 조건을 유지한다. 여기서는 DB 커밋을 확인하지 않는다.
-        if db_tx.is_some() {
-            // 1. Kafka 이벤트 발행 (모든 매칭)
-            // Trade는 Java DB에서 저장하므로 Rust에서는 DB 명령 전송하지 않음
-            // trade_id는 Java DB에서 auto increment로 생성되므로 Rust에서 보내지 않음
-            for match_result in &matches {
-                // 워커가 소유한 확정 후 잔액을 읽는다. 별도 락은 없다.
-                let balance_snapshot = {
-                    let executor_ref = &*executor;
-                    
-                    // 체결 후 잔고 조회 (단일 스레드이므로 안전)
-                    use crate::domains::cex::engine::balance_cache::Balance;
-                    let buyer_base = executor_ref.balance_cache()
-                        .get_balance(match_result.buyer_id, &match_result.base_mint)
-                        .cloned()
-                        .unwrap_or_else(|| Balance::new());
-                        
-                    let buyer_quote = executor_ref.balance_cache()
-                        .get_balance(match_result.buyer_id, &match_result.quote_mint)
-                        .cloned()
-                        .unwrap_or_else(|| Balance::new());
-                        
-                    let seller_base = executor_ref.balance_cache()
-                        .get_balance(match_result.seller_id, &match_result.base_mint)
-                        .cloned()
-                        .unwrap_or_else(|| Balance::new());
-                        
-                    let seller_quote = executor_ref.balance_cache()
-                        .get_balance(match_result.seller_id, &match_result.quote_mint)
-                        .cloned()
-                        .unwrap_or_else(|| Balance::new());
-                    
-                    // executor_ref가 여기서 해제됨
-                    
-                    // 잔고 스냅샷 반환
-                    (
-                        buyer_base.available,
-                        buyer_base.locked,
-                        buyer_quote.available,
-                        buyer_quote.locked,
-                        seller_base.available,
-                        seller_base.locked,
-                        seller_quote.available,
-                        seller_quote.locked,
-                    )
-                };
-                
-                // Kafka 이벤트 발행 (비동기, 논블로킹)
-                // 엔진 스레드는 일반 스레드이므로 tokio 런타임을 생성해야 함
-                if let Some(kafka_producer_ref) = kafka_producer {
-                    let kafka_producer_clone = kafka_producer_ref.clone();
-                    let match_result_clone = match_result.clone();
-                    
-                    // 별도 스레드에서 tokio 런타임 생성하여 Kafka 발행
-                    std::thread::spawn(move || {
-                        let rt = tokio::runtime::Runtime::new().unwrap();
-                        rt.block_on(async move {
-                            eprintln!("[Engine Thread] TradeExecutedEvent 생성 전: buy_order_id={}, sell_order_id={}, buyer_id={}, seller_id={}", 
-                                     match_result_clone.buy_order_id, match_result_clone.sell_order_id, 
-                                     match_result_clone.buyer_id, match_result_clone.seller_id);
-                            
-                            let event = TradeExecutedEvent {
-                                event_type: "trade_executed".to_string(),
-                                buy_order_id: match_result_clone.buy_order_id,
-                                sell_order_id: match_result_clone.sell_order_id,
-                                buyer_id: match_result_clone.buyer_id,
-                                seller_id: match_result_clone.seller_id,
-                                price: match_result_clone.price,
-                                amount: match_result_clone.amount,
-                                base_mint: match_result_clone.base_mint,
-                                quote_mint: match_result_clone.quote_mint,
-                                timestamp: Utc::now(),
-                                
-                                // 잔고 스냅샷
-                                buyer_base_available: balance_snapshot.0,
-                                buyer_base_locked: balance_snapshot.1,
-                                buyer_quote_available: balance_snapshot.2,
-                                buyer_quote_locked: balance_snapshot.3,
-                                seller_base_available: balance_snapshot.4,
-                                seller_base_locked: balance_snapshot.5,
-                                seller_quote_available: balance_snapshot.6,
-                                seller_quote_locked: balance_snapshot.7,
-                            };
-                            
-                            eprintln!("[Engine Thread] trade_executed 이벤트 발행 시도: buy_order_id={}, sell_order_id={}", 
-                                     match_result_clone.buy_order_id, match_result_clone.sell_order_id);
-                            match kafka_producer_clone.publish_trade_executed(&event).await {
-                                Ok(_) => {
-                                    eprintln!("[Engine Thread] trade_executed 이벤트 발행 성공: buy_order_id={}, sell_order_id={}", 
-                                             match_result_clone.buy_order_id, match_result_clone.sell_order_id);
-                                }
-                                Err(e) => {
-                                    eprintln!("[Engine Thread] Failed to publish trade executed event: buy_order_id={}, sell_order_id={}, error={}", 
-                                             match_result_clone.buy_order_id, match_result_clone.sell_order_id, e);
-                                }
-                            }
-                        });
-                    });
-                }
-            }
-            
-        }
-
-        // 시장가 주문 처리 완료 (IOC 방식: 체결되면 filled, 안 되면 cancelled)
-        return Ok(matches);
-    }
-    
-    // 8-0. 지정가 주문 체결 시 Kafka 이벤트 발행 (모든 매칭)
-    // 시장가 주문과 동일하게 각 매칭마다 trade_executed 이벤트 발행
-    if !is_market_order && !matches.is_empty() {
-        use chrono::Utc;
-        
-        for match_result in &matches {
-            // 워커가 소유한 확정 후 잔액을 읽는다. 별도 락은 없다.
-            let balance_snapshot = {
-                let executor_ref = &*executor;
-                
-                // 체결 후 잔고 조회 (단일 스레드이므로 안전)
-                use crate::domains::cex::engine::balance_cache::Balance;
-                let buyer_base = executor_ref.balance_cache()
-                    .get_balance(match_result.buyer_id, &match_result.base_mint)
-                    .cloned()
-                    .unwrap_or_else(|| Balance::new());
-                    
-                let buyer_quote = executor_ref.balance_cache()
-                    .get_balance(match_result.buyer_id, &match_result.quote_mint)
-                    .cloned()
-                    .unwrap_or_else(|| Balance::new());
-                    
-                let seller_base = executor_ref.balance_cache()
-                    .get_balance(match_result.seller_id, &match_result.base_mint)
-                    .cloned()
-                    .unwrap_or_else(|| Balance::new());
-                    
-                let seller_quote = executor_ref.balance_cache()
-                    .get_balance(match_result.seller_id, &match_result.quote_mint)
-                    .cloned()
-                    .unwrap_or_else(|| Balance::new());
-                
-                // executor_ref가 여기서 해제됨
-                
-                // 잔고 스냅샷 반환
-                (
-                    buyer_base.available,
-                    buyer_base.locked,
-                    buyer_quote.available,
-                    buyer_quote.locked,
-                    seller_base.available,
-                    seller_base.locked,
-                    seller_quote.available,
-                    seller_quote.locked,
-                )
-            };
-            
-            // Kafka 이벤트 발행 (비동기, 논블로킹)
-            // 엔진 스레드는 일반 스레드이므로 tokio 런타임을 생성해야 함
-            // trade_id는 Java DB에서 auto increment로 생성되므로 Rust에서 보내지 않음
-            if let Some(kafka_producer_ref) = kafka_producer {
-                let kafka_producer_clone = kafka_producer_ref.clone();
-                let match_result_clone = match_result.clone();
-                
-                // 별도 스레드에서 tokio 런타임 생성하여 Kafka 발행
-                std::thread::spawn(move || {
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async move {
-                        eprintln!("[Engine Thread] TradeExecutedEvent 생성 전 (limit order): buy_order_id={}, sell_order_id={}, buyer_id={}, seller_id={}", 
-                                 match_result_clone.buy_order_id, match_result_clone.sell_order_id,
-                                 match_result_clone.buyer_id, match_result_clone.seller_id);
-                        
-                        let event = TradeExecutedEvent {
-                            event_type: "trade_executed".to_string(),
-                            buy_order_id: match_result_clone.buy_order_id,
-                            sell_order_id: match_result_clone.sell_order_id,
-                            buyer_id: match_result_clone.buyer_id,
-                            seller_id: match_result_clone.seller_id,
-                            price: match_result_clone.price,
-                            amount: match_result_clone.amount,
-                            base_mint: match_result_clone.base_mint,
-                            quote_mint: match_result_clone.quote_mint,
-                            timestamp: Utc::now(),
-                            
-                            // 잔고 스냅샷
-                            buyer_base_available: balance_snapshot.0,
-                            buyer_base_locked: balance_snapshot.1,
-                            buyer_quote_available: balance_snapshot.2,
-                            buyer_quote_locked: balance_snapshot.3,
-                            seller_base_available: balance_snapshot.4,
-                            seller_base_locked: balance_snapshot.5,
-                            seller_quote_available: balance_snapshot.6,
-                            seller_quote_locked: balance_snapshot.7,
-                        };
-                        
-                        eprintln!("[Engine Thread] trade_executed 이벤트 발행 시도 (limit order): buy_order_id={}, sell_order_id={}", 
-                                 match_result_clone.buy_order_id, match_result_clone.sell_order_id);
-                        match kafka_producer_clone.publish_trade_executed(&event).await {
-                            Ok(_) => {
-                                eprintln!("[Engine Thread] trade_executed 이벤트 발행 성공 (limit order): buy_order_id={}, sell_order_id={}", 
-                                         match_result_clone.buy_order_id, match_result_clone.sell_order_id);
-                            }
-                            Err(e) => {
-                                eprintln!("[Engine Thread] Failed to publish trade executed event (limit order): buy_order_id={}, sell_order_id={}, error={}", 
-                                         match_result_clone.buy_order_id, match_result_clone.sell_order_id, e);
-                            }
-                        }
-                    });
-                });
-            }
-        }
-    }
-    
-    // 8-1. 지정가 주문 부분 체결 시 상태 업데이트
-    // ============================================
-    // 지정가 주문은 부분 체결되어도 OrderBook에 남아있음
-    // 부분 체결 시 상태를 'partial'로 업데이트해야 함
-    // ============================================
-    if !is_market_order && !matches.is_empty() {
-        // 지정가 주문이고 체결이 발생했음
-        let is_partially_filled = order_after_match.remaining_amount > Decimal::ZERO;
-        
-        if is_partially_filled {
-            // 부분 체결: 상태를 'partial'로 업데이트
-            if let Some(tx) = db_tx {
-                let total_filled_amount = applied.total_amount;
-                let total_filled_quote_amount = applied.total_quote;
-                
-                let db_cmd = super::db_commands::DbCommand::UpdateOrderStatus {
-                    order_id: order_after_match.id,
-                    status: "partial".to_string(),
-                    filled_amount: total_filled_amount,
-                    filled_quote_amount: total_filled_quote_amount,
-                };
-                if let Err(e) = tx.send(db_cmd) {
-                    eprintln!(
-                        "[Order Submit] Failed to send UpdateOrderStatus command for partially filled order {}: {}",
-                        order_after_match.id, e
+            OrderCommand::GetOrderbook {
+                trading_pair,
+                depth,
+                response,
+            } => {
+                let mut bids = Vec::new();
+                let mut asks = Vec::new();
+                if let Some(book) = state.orderbooks.get(&trading_pair) {
+                    let count = depth.unwrap_or(usize::MAX);
+                    bids.extend(
+                        book.buy_orders
+                            .orders
+                            .values()
+                            .rev()
+                            .flatten()
+                            .take(count)
+                            .cloned(),
+                    );
+                    asks.extend(
+                        book.sell_orders
+                            .orders
+                            .values()
+                            .flatten()
+                            .take(count)
+                            .cloned(),
                     );
                 }
+                let _ = response.send(Ok((bids, asks)));
             }
-        }
-    }
-    
-    // 예약 잔여·가격 개선 반환도 메모리 확정 전에 이미 검증·반영했다.
-    if order_after_match.remaining_amount==Decimal::ZERO {
-        // 완전히 체결된 주문의 상태를 'filled'로 업데이트
-        // DB Writer로 주문 상태 업데이트 명령 전송
-        if let Some(tx) = db_tx {
-            let total_filled_amount = applied.total_amount;
-            let total_filled_quote_amount = applied.total_quote;
-            
-            let db_cmd = super::db_commands::DbCommand::UpdateOrderStatus {
-                order_id: order_after_match.id,
-                status: "filled".to_string(),
-                filled_amount: total_filled_amount,
-                filled_quote_amount: total_filled_quote_amount,
-            };
-            if let Err(e) = tx.send(db_cmd) {
-                eprintln!(
-                    "[Order Submit] Failed to send UpdateOrderStatus command for order {}: {}",
-                    order_after_match.id, e
+            OrderCommand::GetBalance {
+                user_id,
+                mint,
+                response,
+            } => {
+                let balance = state
+                    .executor
+                    .balance_cache()
+                    .get_balance(user_id, &mint)
+                    .map(|balance| (balance.available, balance.locked))
+                    .unwrap_or((Decimal::ZERO, Decimal::ZERO));
+                let _ = response.send(Ok(balance));
+            }
+            OrderCommand::LockBalance {
+                user_id,
+                mint,
+                amount,
+                response,
+            } => {
+                let _ = response.send(
+                    state
+                        .executor
+                        .lock_balance_for_order(0, user_id, &mint, amount),
+                );
+            }
+            OrderCommand::UnlockBalance {
+                user_id,
+                mint,
+                amount,
+                response,
+            } => {
+                let _ = response.send(
+                    state
+                        .executor
+                        .unlock_balance_for_cancel(0, user_id, &mint, amount),
                 );
             }
         }
     }
-    
-    Ok(matches)
+    // 종료 후에는 제어 객체만 상태를 보관한다. 실행 중 공유 접근은 없다.
+    state
 }
 
-/// CancelOrder 명령 처리
-/// 
-/// # 처리 과정
-/// 1. OrderBook에서 주문 찾기
-/// 2. 권한 확인 (user_id 일치)
-/// 3. WAL 메시지 발행 (OrderCancelled)
-/// 4. OrderBook에서 제거
-/// 5. 잔고 잠금 해제 (remaining_amount만큼)
-/// 6. 취소된 주문 반환
-fn handle_cancel_order(
+pub(super) fn process_submit_order(
+    order: OrderEntry,
+    books: &mut HashMap<TradingPair, OrderBook>,
+    matcher: &Matcher,
+    executor: &mut Executor,
+) -> Result<AppliedSubmission> {
+    submission::apply(order, books, matcher, executor)
+}
+
+/// 취소 출력도 한 배치로 전달한다. 예약 해제 검증이 실패하면 주문장을
+/// 그대로 둔다. 주문 삭제는 카운터를 관리하는 주문장 메서드로만 수행한다.
+pub(super) fn cancel_order(
     order_id: u64,
     user_id: u64,
-    trading_pair: TradingPair,
-    response: tokio::sync::oneshot::Sender<Result<OrderEntry>>,
-    wal_tx: Option<&crossbeam::channel::Sender<WalEntry>>,
-    db_tx: Option<&crossbeam::channel::Sender<super::db_commands::DbCommand>>,
-    kafka_producer: Option<&Arc<KafkaProducer>>,
-    orderbooks: &mut HashMap<TradingPair, OrderBook>,
+    pair: &TradingPair,
+    books: &mut HashMap<TradingPair, OrderBook>,
     executor: &mut Executor,
-) {
-    // 1. OrderBook에서 주문 찾기
-    let books = orderbooks;
-    let orderbook = match books.get_mut(&trading_pair) {
-        Some(ob) => ob,
-        None => {
-            let _ = response.send(Err(anyhow::anyhow!("OrderBook not found for trading pair")));
-            return;
-        }
-    };
-    
-    // 2. 주문 찾기 (매수/매도 양쪽 모두 확인)
-    let mut found_order: Option<OrderEntry> = None;
-    let mut found_price: Option<rust_decimal::Decimal> = None;
-    let mut is_buy = false;
-    
-    // 매수 호가에서 찾기
-    for (price, orders) in orderbook.buy_orders.orders.iter_mut() {
-        if let Some(pos) = orders.iter().position(|o| o.id == order_id) {
-            if let Some(order) = orders.remove(pos) {
-                // 권한 확인
-                if order.user_id == user_id {
-                    found_order = Some(order.clone());
-                    found_price = Some(*price);
-                    is_buy = true;
-                    if orders.is_empty() {
-                        // 빈 VecDeque는 나중에 제거
-                    }
-                    break;
-                } else {
-                    // 권한 없음 - 다시 추가
-                    orders.insert(pos, order);
-                    let _ = response.send(Err(anyhow::anyhow!("Unauthorized: You don't own this order")));
-                    return;
-                }
-            }
-        }
-    }
-    
-    // 매도 호가에서 찾기
-    if found_order.is_none() {
-        for (price, orders) in orderbook.sell_orders.orders.iter_mut() {
-            if let Some(pos) = orders.iter().position(|o| o.id == order_id) {
-                if let Some(order) = orders.remove(pos) {
-                    // 권한 확인
-                    if order.user_id == user_id {
-                        found_order = Some(order.clone());
-                        found_price = Some(*price);
-                        is_buy = false;
-                        if orders.is_empty() {
-                            // 빈 VecDeque는 나중에 제거
-                        }
-                        break;
-                    } else {
-                        // 권한 없음 - 다시 추가
-                        orders.insert(pos, order);
-                        let _ = response.send(Err(anyhow::anyhow!("Unauthorized: You don't own this order")));
-                        return;
-                    }
-                }
-            }
-        }
-    }
-    
-    // 빈 VecDeque 제거
-    if let Some(price) = found_price {
-        if is_buy {
-            if let Some(orders) = orderbook.buy_orders.orders.get(&price) {
-                if orders.is_empty() {
-                    orderbook.buy_orders.orders.remove(&price);
-                }
-            }
-        } else {
-            if let Some(orders) = orderbook.sell_orders.orders.get(&price) {
-                if orders.is_empty() {
-                    orderbook.sell_orders.orders.remove(&price);
-                }
-            }
-        }
-    }
-    
-    // 3. OrderBook에서 찾지 못했으면 에러 반환 (DB 조회 안 함 - 성능 최적화)
-    // 엔진은 OrderBook만 확인하고, DB 조회는 하지 않음
-    // Java에서 이미 상태를 확인했으므로, OrderBook에 없으면 이미 체결되었거나 취소된 것
-    let order = match found_order {
-        Some(o) => o,
-        None => {
-            // OrderBook에 주문이 없음 = 이미 체결되었거나 취소됨
-            // Java에서 이미 상태를 확인했으므로, 여기서는 에러만 반환
-            let _ = response.send(Err(anyhow::anyhow!("Order not found in OrderBook. It may have been already filled or cancelled.")));
-            return;
-        }
-    };
-    
-    // 3. WAL 메시지 발행 (OrderCancelled) - 주석 처리됨 (WAL 비활성화)
-    // WAL 로그 쓰기 비활성화 (디스크 공간 부족 문제로 인해 임시 비활성화)
-    /*
-    if let Some(tx) = wal_tx {
-        let wal_entry = WalEntry::OrderCancelled {
-            order_id,
-            user_id,
-            timestamp: chrono::Utc::now().timestamp_millis(),
-        };
-        let _ = tx.send(wal_entry);
-    }
-    */
-    
-    // 4. 잔고 잠금 해제 (remaining_amount만큼)
-    let order_type_str = order.order_type.as_str();
-    
-    // 주의: 엔진은 OrderBook(메모리)만 확인하고 DB는 조회하지 않음
-    // DB 조회는 Java에서 이미 수행했으므로, OrderBook에 없으면 이미 체결되었거나 취소된 것
-    let unlock_mint = if order_type_str == "buy" {
-        &order.quote_mint  // 매수: USDT 잠금 해제
+) -> Result<OrderEntry> {
+    let book = books.get_mut(pair).context("OrderBook not found")?;
+    let (level, buy, found) = book
+        .buy_orders
+        .orders
+        .iter()
+        .find_map(|(level, orders)| {
+            orders
+                .iter()
+                .find(|order| order.id == order_id)
+                .map(|order| (*level, true, order.clone()))
+        })
+        .or_else(|| {
+            book.sell_orders.orders.iter().find_map(|(level, orders)| {
+                orders
+                    .iter()
+                    .find(|order| order.id == order_id)
+                    .map(|order| (*level, false, order.clone()))
+            })
+        })
+        .context("Order not found")?;
+    anyhow::ensure!(found.user_id == user_id, "Unauthorized cancellation");
+    anyhow::ensure!(
+        found.order_side == "limit" && found.order_type == if buy { "buy" } else { "sell" },
+        "Invalid resting order kind"
+    );
+    anyhow::ensure!(
+        found.price == Some(level)
+            && level > Decimal::ZERO
+            && found.remaining_amount > Decimal::ZERO,
+        "Invalid resting order price or remaining quantity"
+    );
+    anyhow::ensure!(
+        found.base_mint == pair.base_mint && found.quote_mint == pair.quote_mint,
+        "Resting order market differs from book"
+    );
+    let asset = if buy {
+        &found.quote_mint
     } else {
-        &order.base_mint   // 매도: SOL 등 잠금 해제
+        &found.base_mint
     };
-    
-    // 잠금 해제할 금액 계산
-    let unlock_amount = if order_type_str == "buy" {
-        // 매수: price * remaining_amount
-        order.price.unwrap_or(rust_decimal::Decimal::ZERO) * order.remaining_amount
+    let unlock = if buy {
+        amount::quote(level, found.remaining_amount)?
     } else {
-        // 매도: remaining_amount
-        order.remaining_amount
+        found.remaining_amount
     };
-    
-    // Executor로 잔고 잠금 해제
-    {
-        let executor_ref = &mut *executor;
-        if let Err(e) = executor_ref.unlock_balance_for_cancel(order_id, user_id, unlock_mint, unlock_amount) {
-            let _ = response.send(Err(anyhow::anyhow!("Failed to unlock balance: {}", e)));
-            return;
-        }
-    }
-    
-    // 5. Kafka 이벤트 발행 (비동기, 논블로킹)
-    // DB 업데이트는 Java Consumer가 처리하므로 여기서는 Kafka 이벤트만 발행
-    // 비동기 태스크로 Kafka 발행 (논블로킹)
-    // 엔진 스레드는 일반 스레드이므로 tokio 런타임을 생성해야 함
-    if let Some(kafka_producer) = kafka_producer {
-        let kafka_producer_clone = kafka_producer.clone();
-        let base_mint_clone = order.base_mint.clone();
-        let quote_mint_clone = order.quote_mint.clone();
-        
-        // 별도 스레드에서 tokio 런타임 생성하여 Kafka 발행
-        std::thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async move {
-                let event = OrderCancelledEvent {
-                    event_type: "order_cancelled".to_string(),
-                    order_id,
-                    user_id,
-                    base_mint: base_mint_clone,
-                    quote_mint: quote_mint_clone,
-                    timestamp: Utc::now(),
-                };
-                
-                if let Err(e) = kafka_producer_clone.publish_order_cancelled(&event).await {
-                    eprintln!("[Kafka] Failed to publish order cancelled event: {}", e);
-                }
-            });
-        });
-    }
-    
-    // 6. 취소된 주문 반환 (DB 업데이트는 Kafka Consumer가 처리)
-    let _ = response.send(Ok(order));
-}
-
-/// GetOrderbook 명령 처리
-/// 
-/// # 처리 과정
-/// 1. OrderBook 찾기
-/// 2. 매수 주문 목록 수집 (depth만큼)
-/// 3. 매도 주문 목록 수집 (depth만큼)
-/// 4. 결과 반환
-/// 
-/// # Note
-/// depth가 None이면 전체 주문 반환 (주의: 많은 주문이 있으면 느릴 수 있음)
-fn handle_get_orderbook(
-    trading_pair: TradingPair,
-    depth: Option<usize>,
-    response: tokio::sync::oneshot::Sender<Result<(Vec<OrderEntry>, Vec<OrderEntry>)>>,
-    orderbooks: &mut HashMap<TradingPair, OrderBook>,
-) {
-    // 1. OrderBook 찾기
-    let books = orderbooks;
-    let orderbook = match books.get(&trading_pair) {
-        Some(ob) => ob,
-        None => {
-            // OrderBook이 없으면 빈 목록 반환
-            let _ = response.send(Ok((Vec::new(), Vec::new())));
-            return;
-        }
-    };
-    
-    // 2. 매수 주문 목록 수집
-    let mut buy_orders = Vec::new();
-    for (_, orders) in orderbook.buy_orders.orders.iter().rev() {
-        for order in orders.iter() {
-            buy_orders.push(order.clone());
-            if let Some(d) = depth {
-                if buy_orders.len() >= d {
-                    break;
-                }
-            }
-        }
-        if let Some(d) = depth {
-            if buy_orders.len() >= d {
-                break;
-            }
-        }
-    }
-    
-    // 3. 매도 주문 목록 수집
-    let mut sell_orders = Vec::new();
-    for (_, orders) in orderbook.sell_orders.orders.iter() {
-        for order in orders.iter() {
-            sell_orders.push(order.clone());
-            if let Some(d) = depth {
-                if sell_orders.len() >= d {
-                    break;
-                }
-            }
-        }
-        if let Some(d) = depth {
-            if sell_orders.len() >= d {
-                break;
-            }
-        }
-    }
-    
-    // 4. 결과 반환
-    let _ = response.send(Ok((buy_orders, sell_orders)));
-}
-
-/// GetBalance 명령 처리
-fn handle_get_balance(
-    user_id: u64,
-    mint: String,
-    response: tokio::sync::oneshot::Sender<Result<(rust_decimal::Decimal, rust_decimal::Decimal)>>,
-    executor: &mut Executor,
-) {
-    let balance_cache = executor.balance_cache();
-    
-    match balance_cache.get_balance(user_id, &mint) {
-        Some(balance) => {
-            let _ = response.send(Ok((balance.available, balance.locked)));
-        }
-        None => {
-            let _ = response.send(Ok((rust_decimal::Decimal::ZERO, rust_decimal::Decimal::ZERO)));
-        }
-    }
-}
-
-/// LockBalance 명령 처리
-fn handle_lock_balance(
-    user_id: u64,
-    mint: String,
-    amount: rust_decimal::Decimal,
-    response: tokio::sync::oneshot::Sender<Result<()>>,
-    wal_tx: Option<&crossbeam::channel::Sender<WalEntry>>,
-    db_tx: Option<&crossbeam::channel::Sender<super::db_commands::DbCommand>>,
-    executor: &mut Executor,
-) {
-    
-    // 현재 Executor는 실행 캐시만 변경한다. 영속 결과·WAL 확정은 별도 후속 과제다.
-    
-    // 잔고 잠금
-    match executor.lock_balance_for_order(0, user_id, &mint, amount) {
-        Ok(()) => {
-            // [비활성화] Java 서버가 잔고의 Source of Truth가 되므로 엔진에서 DB 업데이트 비활성화
-            // 잔고 업데이트는 Kafka 이벤트를 통해 Java Consumer가 처리합니다.
-            /*
-            // DB Writer로 잔고 업데이트 명령 전송 (available 감소, locked 증가)
-            if let Some(tx) = db_tx {
-                let db_cmd = super::db_commands::DbCommand::UpdateBalance {
-                    user_id,
-                    mint: mint.clone(),
-                    available_delta: Some(-amount), // available 감소
-                    locked_delta: Some(amount), // locked 증가
-                };
-                let _ = tx.send(db_cmd);
-            }
-            */
-            
-            let _ = response.send(Ok(()));
-        }
-        Err(e) => {
-            let _ = response.send(Err(e));
-        }
-    }
-}
-
-/// UnlockBalance 명령 처리
-fn handle_unlock_balance(
-    user_id: u64,
-    mint: String,
-    amount: rust_decimal::Decimal,
-    response: tokio::sync::oneshot::Sender<Result<()>>,
-    wal_tx: Option<&crossbeam::channel::Sender<WalEntry>>,
-    db_tx: Option<&crossbeam::channel::Sender<super::db_commands::DbCommand>>,
-    executor: &mut Executor,
-) {
-    
-    // WAL 메시지 발행 - 주석 처리됨 (WAL 비활성화)
-    // WAL 로그 쓰기 비활성화 (디스크 공간 부족 문제로 인해 임시 비활성화)
-    /*
-    if let Some(tx) = wal_tx {
-        let wal_entry = WalEntry::OrderCancelled {
-            order_id: 0,  // TODO: 실제 order_id 전달
-            user_id,
-            timestamp: chrono::Utc::now().timestamp_millis(),
-        };
-        let _ = tx.send(wal_entry);
-    }
-    */
-    
-    // 잔고 잠금 해제
-    match executor.unlock_balance_for_cancel(0, user_id, &mint, amount) {
-        Ok(()) => {
-            // [비활성화] Java 서버가 잔고의 Source of Truth가 되므로 엔진에서 DB 업데이트 비활성화
-            // 잔고 업데이트는 Kafka 이벤트를 통해 Java Consumer가 처리합니다.
-            /*
-            // DB Writer로 잔고 업데이트 명령 전송 (locked 감소, available 증가)
-            if let Some(tx) = db_tx {
-                let db_cmd = super::db_commands::DbCommand::UpdateBalance {
-                    user_id,
-                    mint: mint.clone(),
-                    available_delta: Some(amount), // available 증가
-                    locked_delta: Some(-amount), // locked 감소
-                };
-                let _ = tx.send(db_cmd);
-            }
-            */
-            
-            let _ = response.send(Ok(()));
-        }
-        Err(e) => {
-            let _ = response.send(Err(e));
-        }
-    }
-}
-
-/// UpdateBalance 명령 처리 (입금/출금)
-/// 
-/// # 처리 과정
-/// 1. BalanceCache에서 잔고 조회/생성
-/// 2. available 업데이트 (기존 + delta)
-/// 3. WAL 메시지 발행 (BalanceUpdated)
-/// 4. DB 명령 전송 (UpdateBalance) → DB Writer가 배치로 처리
-/// 5. 성공/실패 결과를 response로 전송
-/// 
-/// # Arguments
-/// * `user_id` - 사용자 ID
-/// * `mint` - 자산 종류 (예: "SOL", "USDT")
-/// * `available_delta` - available 증감량 (양수: 입금, 음수: 출금)
-/// * `response` - 결과를 반환할 oneshot 채널
-/// * `wal_tx` - WAL 메시지 전송 채널
-/// * `db_tx` - DB 명령 전송 채널
-/// * `executor` - Executor (BalanceCache 포함)
-/// 
-/// # 예시
-/// ```rust
-/// // 100 USDT 입금
-/// handle_update_balance(
-///     123,
-///     "USDT".to_string(),
-///     Decimal::new(100, 0),
-///     response,
-///     wal_tx,
-///     db_tx,
-///     &executor,
-/// );
-/// ```
-fn handle_update_balance(
-    user_id: u64,
-    mint: String,
-    available_delta: rust_decimal::Decimal,
-    response: tokio::sync::oneshot::Sender<Result<()>>,
-    _wal_tx: Option<&crossbeam::channel::Sender<WalEntry>>,
-    _db_tx: Option<&crossbeam::channel::Sender<super::db_commands::DbCommand>>,
-    executor: &mut Executor,
-) {
-    // 1. BalanceCache에서 잔고 업데이트
-    let (new_available, new_locked) = {
-        let executor_ref = &mut *executor;
-        let balance_cache = executor_ref.balance_cache_mut();
-        
-        // available 업데이트 (delta 추가)
-        balance_cache.add_available(user_id, &mint, available_delta);
-        
-        // 업데이트 후 잔고 조회 (WAL 기록용)
-        let new_balance = balance_cache.get_balance(user_id, &mint)
-            .cloned()
-            .unwrap_or_else(|| crate::domains::cex::engine::balance_cache::Balance::new());
-        
-        (new_balance.available, new_balance.locked)
-    };
-    
-    // 2. WAL 메시지 발행 (BalanceUpdated) - 주석 처리됨 (WAL 비활성화)
-    // 업데이트 후 잔고를 기록하여 복구 시 정확한 상태 복원 가능
-    // WAL 로그 쓰기 비활성화 (디스크 공간 부족 문제로 인해 임시 비활성화)
-    /*
-    if let Some(tx) = wal_tx {
-        let wal_entry = WalEntry::BalanceUpdated {
-            user_id,
-            mint: mint.clone(),
-            available: new_available.to_string(),
-            locked: new_locked.to_string(),
-            timestamp: chrono::Utc::now().timestamp_millis(),
-        };
-        let _ = tx.send(wal_entry);
-    }
-    */
-    
-    // [비활성화] Java 서버가 잔고의 Source of Truth가 되므로 엔진에서 DB 업데이트 비활성화
-    // 잔고 업데이트는 Kafka 이벤트를 통해 Java Consumer가 처리합니다.
-    /*
-    // 3. DB 명령 전송 (UpdateBalance)
-    // DB Writer 스레드가 배치로 처리 (100개 또는 10ms마다)
-    if let Some(tx) = db_tx {
-        let db_cmd = super::db_commands::DbCommand::UpdateBalance {
-            user_id,
-            mint: mint.clone(),
-            available_delta: Some(available_delta),
-            locked_delta: None,  // 입금/출금은 available만 변경
-        };
-        let _ = tx.send(db_cmd);
-    }
-    */
-    
-    // 4. 성공 결과 반환
-    let _ = response.send(Ok(()));
-}
-
-// =====================================================
-// WAL 스레드 루프
-// =====================================================
-// 역할: WAL 메시지를 받아서 디스크에 순차 쓰기
-//
-// 처리 과정:
-// 1. 코어 고정 (Core 1)
-// 2. WalWriter 생성
-// 3. WAL 메시지 수신 루프
-// 4. WalWriter::append() 호출
-// 5. 주기적 fsync()
-// =====================================================
-
-/// WAL 스레드 메인 루프
-/// 
-/// # Arguments
-/// * `wal_rx` - WAL 메시지 수신 채널
-/// * `wal_dir` - WAL 디렉토리 경로
-/// 
-/// # 처리 흐름
-/// ```
-/// loop {
-///     wal_rx.recv() → WalEntry
-///         ↓
-///     WalWriter::append(entry)
-///         ↓
-///     (10개마다) fsync()
-/// }
-/// ```
-pub fn wal_thread_loop(
-    wal_rx: Receiver<WalEntry>,
-    wal_dir: std::path::PathBuf,
-) {
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 1. 코어 고정 설정 (PROD: 코어 고정 안 함, DEV: Core 1 고정)
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    
-    let config = CoreConfig::from_env();
-    // PROD 환경: 코어 고정 안 함 (OS 스케줄링에 맡김, 모든 리소스 활용)
-    // DEV 환경: Core 1에 고정 (디스크 I/O 전용)
-    if config.wal_core != 999 {
-        eprintln!("[WAL Thread] Pinning to Core {}", config.wal_core);
-        CoreConfig::set_core(Some(config.wal_core));
+    let side = if buy {
+        &mut book.buy_orders
     } else {
-        eprintln!("[WAL Thread] Core pinning disabled (OS scheduling)");
-        CoreConfig::set_core(None);  // 코어 고정 비활성화 (PROD 환경)
-    }
-    
-    // WAL 스레드는 실시간 스케줄링 불필요 (I/O 바운드, OS 스케줄링 충분)
-    
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 2. WalWriter 생성
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    
-    let mut wal_writer = match WalWriter::new(&wal_dir, 10) {
-        Ok(writer) => writer,
-        Err(e) => {
-            eprintln!("Failed to create WalWriter: {}", e);
-            return;
-        }
+        &mut book.sell_orders
     };
-    
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 3. 메인 루프
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    
-    loop {
-        match wal_rx.recv() {
-            Ok(entry) => {
-                // WAL 파일에 쓰기
-                if let Err(e) = wal_writer.append(&entry) {
-                    eprintln!("Failed to write to WAL: {}", e);
-                }
-            }
-            Err(_) => {
-                // 채널이 닫힘 (정상 종료)
-                // 마지막 동기화
-                let _ = wal_writer.sync();
-                break;
-            }
-        }
-    }
+    anyhow::ensure!(side.total_orders() > 0, "Invalid order counter");
+    executor.unlock_balance_for_cancel(order_id, user_id, asset, unlock)?;
+    side.remove_order(order_id, level)
+        .expect("validated order remains during exclusive borrow");
+    Ok(found)
 }
-
-// =====================================================
-// DB Writer 스레드 루프
-// =====================================================
-// 역할: 메모리에서 DB 명령을 받아서 배치로 DB에 저장
-//
-// 처리 과정:
-// 1. 코어 고정 (Core 2, dev 환경만)
-// 2. DB 명령 수신 루프
-// 3. 배치로 모으기 (10ms 또는 100개)
-// 4. DB에 배치 쓰기 (트랜잭션)
-// =====================================================
-
-/// DB Writer 스레드 메인 루프
-/// 
-/// # Arguments
-/// * `db_rx` - DB 명령 수신 채널
-/// * `db_pool` - 데이터베이스 연결 풀
-/// 
-/// # 처리 흐름
-/// ```
-/// loop {
-///     db_rx.recv() → DbCommand
-///         ↓
-///     batch.push(cmd)
-///         ↓
-///     (10ms 또는 100개마다)
-///         ↓
-///     db.execute_batch(&batch)
-/// }
-/// ```
-/// 
-/// # 배치 전략
-/// - 시간 기반: 10ms마다 배치 쓰기
-/// - 크기 기반: 100개 모이면 즉시 쓰기
-/// - 트랜잭션: 여러 작업을 하나의 트랜잭션으로 묶기
-pub fn db_writer_thread_loop(
-    db_rx: Receiver<super::db_commands::DbCommand>,
-    db_pool: PgPool,
-) {
-    use super::db_commands::DbCommand;
-    use std::time::{Duration, Instant};
-    
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 1. 코어 고정 (Core 2, dev 환경만)
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    
-    let config = CoreConfig::from_env();
-    if let Some(core) = config.db_writer_core {
-        CoreConfig::set_core(Some(core));
-    }
-    
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 2. 배치 변수 초기화
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    
-    let mut batch = Vec::new();
-    let batch_size_limit = 100;
-    // 운영 환경에서는 flush 시간을 조정하여 저장 지연과 Deadlock 확률의 균형 유지
-    // 운영: 500ms (체결내역 저장 지연 감소), 로컬: 10ms
-    let batch_time_limit = if std::env::var("RUST_ENV").unwrap_or_else(|_| "dev".to_string()) == "prod" {
-        Duration::from_millis(500)  // 운영: 500ms (1000ms → 500ms로 단축하여 저장 지연 감소)
-    } else {
-        Duration::from_millis(10)   // 로컬: 10ms
-    };
-    let mut last_flush = Instant::now();
-    
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 3. 메인 루프 (Tokio 런타임 필요)
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    
-    // Tokio 런타임 생성 (DB 작업은 async이므로)
-    let rt = tokio::runtime::Runtime::new()
-        .expect("Failed to create Tokio runtime for DB Writer");
-    
-    rt.block_on(async {
-        loop {
-            // 채널이 닫혔는지 먼저 확인 (논블로킹, 즉시 반환)
-            match db_rx.try_recv() {
-                Ok(cmd) => {
-                    // 명령 수신
-                    batch.push(cmd);
-                    
-                    // 크기 기반 배치 쓰기 (100개 모이면)
-                    if batch.len() >= batch_size_limit {
-                        if let Err(e) = flush_batch(&mut batch, &db_pool).await {
-                            eprintln!("Failed to flush DB batch: {}", e);
-                        }
-                        last_flush = Instant::now();
-                    }
-                    continue; // 다음 루프로
-                }
-                Err(crossbeam::channel::TryRecvError::Disconnected) => {
-                    // 채널이 닫힘 (정상 종료) - 즉시 감지
-                    // 마지막 배치 쓰기
-                    if !batch.is_empty() {
-                        let _ = flush_batch(&mut batch, &db_pool).await;
-                    }
-                    break;
-                }
-                Err(crossbeam::channel::TryRecvError::Empty) => {
-                    // 채널이 비어있지만 아직 열려있음
-                    // 타임아웃 설정 (10ms)
-                    let timeout = batch_time_limit.saturating_sub(last_flush.elapsed());
-                    
-                    if timeout == Duration::ZERO {
-                        // 시간 기반 배치 쓰기 (10ms 경과)
-                        if !batch.is_empty() {
-                            if let Err(e) = flush_batch(&mut batch, &db_pool).await {
-                                eprintln!("Failed to flush DB batch: {}", e);
-                            }
-                            last_flush = Instant::now();
-                        }
-                        // 채널이 닫혔는지 다시 확인 (논블로킹)
-                        match db_rx.try_recv() {
-                            Ok(cmd) => {
-                                batch.push(cmd);
-                                continue;
-                            }
-                            Err(crossbeam::channel::TryRecvError::Disconnected) => {
-                                // 채널이 닫힘
-                                if !batch.is_empty() {
-                                    let _ = flush_batch(&mut batch, &db_pool).await;
-                                }
-                                break;
-                            }
-                            Err(crossbeam::channel::TryRecvError::Empty) => {
-                                // 여전히 비어있음 - 매우 짧은 대기 후 다시 확인
-                                tokio::time::sleep(Duration::from_micros(100)).await;
-                            }
-                        }
-                    } else {
-                        // 타임아웃까지 대기
-                        match db_rx.recv_timeout(timeout) {
-                            Ok(cmd) => {
-                                batch.push(cmd);
-                                if batch.len() >= batch_size_limit {
-                                    if let Err(e) = flush_batch(&mut batch, &db_pool).await {
-                                        eprintln!("Failed to flush DB batch: {}", e);
-                                    }
-                                    last_flush = Instant::now();
-                                }
-                            }
-                            Err(crossbeam::channel::RecvTimeoutError::Timeout) => {
-                                // 시간 기반 배치 쓰기 (10ms 경과)
-                                if !batch.is_empty() {
-                                    if let Err(e) = flush_batch(&mut batch, &db_pool).await {
-                                        eprintln!("Failed to flush DB batch: {}", e);
-                                    }
-                                    last_flush = Instant::now();
-                                }
-                            }
-                            Err(crossbeam::channel::RecvTimeoutError::Disconnected) => {
-                                // 채널이 닫힘 (정상 종료)
-                                if !batch.is_empty() {
-                                    let _ = flush_batch(&mut batch, &db_pool).await;
-                                }
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    });
-}
-
-/// 배치를 DB에 쓰기 (async)
-/// 
-/// # Arguments
-/// * `batch` - DB 명령 배치
-/// * `db_pool` - 데이터베이스 연결 풀
-/// 
-/// # 처리 과정
-/// 1. 트랜잭션 시작
-/// 2. 각 명령 처리
-/// 3. 커밋
-/// Deadlock 에러 확인 헬퍼 함수
-/// 
-/// PostgreSQL의 Deadlock 에러 코드 40P01을 확인합니다.
-fn is_deadlock_error(e: &anyhow::Error) -> bool {
-    let error_str = e.to_string();
-    error_str.contains("deadlock") || error_str.contains("40P01")
-}
-
-/// 배치를 DB에 쓰기 (Deadlock 재시도 로직 포함)
-/// 
-/// # 처리 과정
-/// 1. UpdateBalance 명령 집계 (같은 (user_id, mint) 조합의 delta 합산)
-/// 2. 배치 정렬 (외래키 제약조건을 위해)
-/// 3. 트랜잭션 시작 및 명령 처리
-/// 4. Deadlock 발생 시 재시도 (최대 3회)
-/// 
-/// # Deadlock 처리
-/// - Deadlock 발생 시 트랜잭션 롤백 후 재시도
-/// - 재시도 간격: 100ms, 200ms, 300ms (지수 백오프)
-/// - 최대 3회 재시도 후 실패 시 에러 반환
-async fn flush_batch(
-    batch: &mut Vec<super::db_commands::DbCommand>,
-    db_pool: &PgPool,
-) -> Result<()> {
-    use super::db_commands::DbCommand;
-    use std::collections::HashMap;
-    use std::time::Duration;
-    
-    if batch.is_empty() {
-        return Ok(());
-    }
-    
-    // [비활성화] Java 서버가 잔고의 Source of Truth가 되므로 엔진에서 DB 업데이트 비활성화
-    // 잔고 업데이트는 Kafka 이벤트를 통해 Java Consumer가 처리합니다.
-    /*
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 1. UpdateBalance 명령 집계 (Deadlock 확률 감소)
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 같은 (user_id, mint) 조합의 UpdateBalance 명령을 집계하여
-    // 한 번만 UPDATE 실행하도록 합니다.
-    // 이렇게 하면 같은 행을 여러 번 업데이트하지 않아 Deadlock 확률이 감소합니다.
-    let mut balance_updates: HashMap<(u64, String), (rust_decimal::Decimal, rust_decimal::Decimal)> = HashMap::new();
-    */
-    let mut other_commands = Vec::new();
-    
-    // 배치를 순회하면서 UpdateBalance 명령을 필터링 (집계하지 않고 제거)
-    for cmd in batch.iter() {
-        match cmd {
-            /*
-            DbCommand::UpdateBalance { user_id, mint, available_delta, locked_delta } => {
-                // 같은 (user_id, mint) 조합의 delta를 합산
-                let key = (*user_id, mint.clone());
-                let entry = balance_updates.entry(key).or_insert((rust_decimal::Decimal::ZERO, rust_decimal::Decimal::ZERO));
-                
-                // available_delta 합산
-                if let Some(delta) = available_delta {
-                    entry.0 += *delta;
-                }
-                
-                // locked_delta 합산
-                if let Some(delta) = locked_delta {
-                    entry.1 += *delta;
-                }
-            }
-            */
-            DbCommand::UpdateBalance { .. } => {
-                // UpdateBalance 명령은 무시 (Java에서 처리)
-                continue;
-            }
-            _ => {
-                // UpdateBalance가 아닌 명령은 그대로 유지
-                other_commands.push(cmd.clone());
-            }
-        }
-    }
-    
-    // 집계된 UpdateBalance를 다른 명령과 합치기 (비활성화)
-    let mut processed_batch = Vec::new();
-    
-    // 다른 명령들을 먼저 추가 (InsertOrder, UpdateOrderStatus, InsertTrade)
-    processed_batch.extend(other_commands);
-    
-    // [비활성화] UpdateBalance 명령은 Java에서 처리하므로 추가하지 않음
-    /*
-    // 집계된 UpdateBalance를 마지막에 추가
-    for ((user_id, mint), (total_available_delta, total_locked_delta)) in balance_updates {
-        // delta가 0이 아닌 경우만 추가
-        if total_available_delta != rust_decimal::Decimal::ZERO || total_locked_delta != rust_decimal::Decimal::ZERO {
-            processed_batch.push(DbCommand::UpdateBalance {
-                user_id,
-                mint,
-                available_delta: if total_available_delta != rust_decimal::Decimal::ZERO { 
-                    Some(total_available_delta) 
-                } else { 
-                    None 
-                },
-                locked_delta: if total_locked_delta != rust_decimal::Decimal::ZERO { 
-                    Some(total_locked_delta) 
-                } else { 
-                    None 
-                },
-            });
-        }
-    }
-    */
-    
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 2. 배치 정렬 (외래키 제약조건을 위해)
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 1. InsertOrder (주문 먼저 생성)
-    // 2. UpdateOrderStatus (주문 상태 업데이트)
-    // 3. InsertTrade (체결 내역 - 주문이 있어야 함)
-    // 4. UpdateBalance (잔고 업데이트) - [비활성화] Java에서 처리
-    processed_batch.sort_by(|a, b| {
-        let priority = |cmd: &DbCommand| match cmd {
-            DbCommand::InsertOrder { .. } => 1,
-            DbCommand::UpdateOrderStatus { .. } => 2,
-            DbCommand::InsertTrade { .. } => 3,
-            DbCommand::UpdateBalance { .. } => 4, // [비활성화] 하지만 match 문에서는 처리 필요
-        };
-        priority(a).cmp(&priority(b))
-    });
-    
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 3. Deadlock 재시도 로직 (강화: 3회 → 5회)
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 배치 시간 단축(500ms)에 따른 데드락 확률 증가에 대비하여 재시도 강화
-    const MAX_RETRIES: u32 = 5;
-    let mut retry_count = 0;
-    
-    loop {
-        // 트랜잭션 시작
-        let mut tx = match db_pool.begin().await {
-            Ok(tx) => tx,
-            Err(e) => {
-                if retry_count < MAX_RETRIES {
-                    retry_count += 1;
-                    // 지수 백오프: 100ms, 200ms, 400ms, 800ms, 1600ms
-                    let delay_ms = 100u64 * (1u64 << (retry_count - 1));
-                    eprintln!("[DB Writer] Failed to begin transaction (attempt {}), retrying in {}ms...", retry_count, delay_ms);
-                    tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-                    continue;
-                }
-                return Err(anyhow::anyhow!("Failed to begin transaction after {} retries: {}", MAX_RETRIES, e));
-            }
-        };
-        
-        // 성공한 명령 인덱스 추적 (에러 발생 시 재시도 가능하도록)
-        let mut successful_indices = Vec::new();
-        let mut has_deadlock = false;
-        
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // 4. 각 명령 처리 (drain 대신 인덱스 순회)
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // drain(..)을 사용하면 에러 발생 시 배치가 비워져서 재시도 불가능합니다.
-        // 인덱스 순회를 사용하여 성공한 명령만 나중에 제거합니다.
-        for (idx, cmd) in processed_batch.iter().enumerate() {
-            match process_db_command(cmd, &mut tx, db_pool).await {
-                Ok(_) => {
-                    // 성공한 명령 인덱스 저장
-                    successful_indices.push(idx);
-                }
-                Err(e) => {
-                    // Deadlock 에러 확인
-                    if is_deadlock_error(&e) {
-                        eprintln!("[DB Writer] Deadlock detected (attempt {}), will retry...", retry_count + 1);
-                        has_deadlock = true;
-                        break; // 트랜잭션 롤백 후 재시도
-                    } else {
-                        // Deadlock이 아닌 다른 에러는 즉시 반환
-                        return Err(e);
-                    }
-                }
-            }
-        }
-        
-        // Deadlock 발생 시 재시도
-        if has_deadlock {
-            // 트랜잭션 롤백 (명시적으로 롤백하지 않아도 drop 시 자동 롤백)
-            drop(tx);
-            
-            if retry_count < MAX_RETRIES {
-                retry_count += 1;
-                // 지수 백오프: 100ms, 200ms, 400ms, 800ms, 1600ms
-                let delay_ms = 100u64 * (1u64 << (retry_count - 1));
-                eprintln!("[DB Writer] Retrying after deadlock (attempt {}/{}) in {}ms...", retry_count, MAX_RETRIES, delay_ms);
-                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-                continue;
-            } else {
-                return Err(anyhow::anyhow!("Failed after {} retries due to deadlock", MAX_RETRIES));
-            }
-        }
-        
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // 5. 트랜잭션 커밋
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        match tx.commit().await {
-            Ok(_) => {
-                // 성공한 명령만 배치에서 제거 (역순으로 제거하여 인덱스 변경 방지)
-                successful_indices.sort_by(|a, b| b.cmp(a));
-                for &idx in &successful_indices {
-                    batch.remove(idx);
-                }
-                return Ok(());
-            }
-            Err(e) => {
-                // 커밋 실패 시 Deadlock 확인
-                if is_deadlock_error(&anyhow::anyhow!("{}", e)) {
-                    if retry_count < MAX_RETRIES {
-                        retry_count += 1;
-                        // 지수 백오프: 100ms, 200ms, 400ms, 800ms, 1600ms
-                        let delay_ms = 100u64 * (1u64 << (retry_count - 1));
-                        eprintln!("[DB Writer] Commit failed due to deadlock (attempt {}), retrying in {}ms...", retry_count, delay_ms);
-                        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-                        continue;
-                    } else {
-                        return Err(anyhow::anyhow!("Failed to commit transaction after {} retries due to deadlock: {}", MAX_RETRIES, e));
-                    }
-                } else {
-                    return Err(anyhow::anyhow!("Failed to commit transaction: {}", e));
-                }
-            }
-        }
-    }
-}
-
-/// 개별 DB 명령 처리 (헬퍼 함수)
-/// 
-/// 각 명령을 처리하고 에러 발생 시 반환합니다.
-async fn process_db_command(
-    cmd: &super::db_commands::DbCommand,
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    db_pool: &PgPool,
-) -> Result<()> {
-    use super::db_commands::DbCommand;
-    
-    match cmd {
-        DbCommand::InsertOrder {
-                order_id,
-                user_id,
-                order_type,
-                order_side,
-                base_mint,
-                quote_mint,
-                price,
-                amount,
-                created_at,
-                status,
-                filled_amount,
-                filled_quote_amount,
-            } => {
-                // 상태 및 체결 정보 (시장가 주문은 최종 상태로 전달됨)
-                let final_status = status.as_ref().map(|s| s.clone()).unwrap_or_else(|| "pending".to_string());
-                let final_filled_amount = filled_amount.unwrap_or(rust_decimal::Decimal::ZERO);
-                let final_filled_quote_amount = filled_quote_amount.unwrap_or(rust_decimal::Decimal::ZERO);
-                
-                // 지정된 ID로 INSERT
-                sqlx::query(
-                    r#"
-                    INSERT INTO orders (
-                        id, user_id, order_type, order_side, base_mint, quote_mint,
-                        price, amount, filled_amount, filled_quote_amount, status, created_at, updated_at
-                    )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-                    ON CONFLICT (id) DO UPDATE SET
-                        updated_at = $13
-                    "#
-                )
-                .bind(*order_id as i64)
-                .bind(*user_id as i64)
-                .bind(order_type)
-                .bind(order_side)
-                .bind(base_mint)
-                .bind(quote_mint)
-                .bind(price)
-                .bind(amount)
-                .bind(final_filled_amount)
-                .bind(final_filled_quote_amount)
-                .bind(&final_status)
-                .bind(created_at)
-                .bind(created_at)
-                .execute(&mut *tx)
-                .await
-                .context("Failed to insert order")?;
-                
-                Ok(())
-            }
-            
-            DbCommand::UpdateOrderStatus {
-                order_id,
-                status,
-                filled_amount,
-                filled_quote_amount,
-            } => {
-                // 취소 시에는 filled_quote_amount를 변경하지 않음 (기존 값 유지)
-                if status == "cancelled" {
-                    sqlx::query(
-                        r#"
-                        UPDATE orders
-                        SET status = $1, filled_amount = $2, updated_at = $3
-                        WHERE id = $4
-                        "#
-                    )
-                    .bind(status)
-                    .bind(filled_amount)
-                    .bind(chrono::Utc::now())
-                    .bind(*order_id as i64)
-                    .execute(&mut *tx)
-                    .await
-                    .context("Failed to update order status")?;
-                } else {
-                    sqlx::query(
-                        r#"
-                        UPDATE orders
-                        SET status = $1, filled_amount = $2, filled_quote_amount = $3, updated_at = $4
-                        WHERE id = $5
-                        "#
-                    )
-                    .bind(status)
-                    .bind(filled_amount)
-                    .bind(filled_quote_amount)
-                    .bind(chrono::Utc::now())
-                    .bind(*order_id as i64)
-                    .execute(&mut *tx)
-                    .await
-                    .context("Failed to update order status")?;
-                }
-                
-                Ok(())
-            }
-            
-            // [비활성화] Java 서버가 Trade의 Source of Truth가 되므로 엔진에서 DB 저장 비활성화
-            // Trade는 Kafka 이벤트를 통해 Java Consumer가 저장합니다.
-            DbCommand::InsertTrade { .. } => {
-                // 아무것도 하지 않음 (Java에서 처리)
-                Ok(())
-            }
-            
-            // [비활성화] Java 서버가 잔고의 Source of Truth가 되므로 엔진에서 DB 업데이트 비활성화
-            // 잔고 업데이트는 Kafka 이벤트를 통해 Java Consumer가 처리합니다.
-            DbCommand::UpdateBalance { .. } => {
-                // 아무것도 하지 않음 (Java에서 처리)
-                Ok(())
-            }
-    }
-}
-

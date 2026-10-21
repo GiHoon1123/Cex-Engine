@@ -2,76 +2,73 @@
 // Kafka Producer - 이벤트 발행
 // =====================================================
 // 역할: Rust 엔진에서 발생하는 이벤트를 Kafka로 발행
-// 
+//
 // 발행 이벤트:
 // 1. 체결 이벤트 (trade_executed)
 // 2. 취소 이벤트 (order_cancelled)
 //
 // 토픽 구조:
 // - 단일 토픽: order-events (파티션 12개)
-// - 파티션 키: user_id (같은 유저의 이벤트는 같은 파티션으로)
+// - 체결은 매수자, 취소는 주문 소유자를 파티션 키로 사용
+// - 서로 다른 파티션의 소비 완료 순서는 보장하지 않음
 // - 정산용: trade_executed, order_cancelled만 발행
 //
 // 특징:
 // - 비동기 발행 (논블로킹)
-// - 엔진 성능에 영향 없음
-// - 발행 실패해도 엔진 처리에는 영향 없음 (로깅만)
+// - 출력 워커에서 완료를 기다림
+// - 발행 실패를 오류로 반환해 신규 처리를 차단
 // =====================================================
 
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use rdkafka::config::ClientConfig;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use serde::Serialize;
-use std::sync::Arc;
 use std::time::Duration;
 
 /// Kafka Producer
-/// 
+///
 /// 비동기로 Kafka 이벤트를 발행합니다.
-/// 엔진 성능에 영향을 주지 않도록 논블로킹 방식으로 동작합니다.
+/// 완료 대기는 전용 출력 워커에서 수행한다.
 #[derive(Clone)]
 pub struct KafkaProducer {
-    producer: Arc<FutureProducer>,
-    bootstrap_servers: String,
+    producer: FutureProducer,
 }
 
 impl KafkaProducer {
     /// 새 Kafka Producer 생성
-    /// 
+    ///
     /// # Arguments
     /// * `bootstrap_servers` - Kafka 브로커 주소 (예: "localhost:9092")
-    /// 
+    ///
     /// # Returns
     /// KafkaProducer 인스턴스
     pub fn new(bootstrap_servers: &str) -> Result<Self> {
         let producer: FutureProducer = ClientConfig::new()
             .set("bootstrap.servers", bootstrap_servers)
             .set("message.timeout.ms", "5000")
-            .set("acks", "1") // 리더만 확인 (성능 우선)
+            .set("acks", "all")
+            .set("enable.idempotence", "true")
             .set("retries", "3")
             .set("batch.size", "16384")
             .set("linger.ms", "10")
             .create()
             .context("Failed to create Kafka producer")?;
 
-        Ok(Self {
-            producer: Arc::new(producer),
-            bootstrap_servers: bootstrap_servers.to_string(),
-        })
+        Ok(Self { producer })
     }
 
     /// 체결 이벤트 발행
     /// Publish trade executed event
-    /// 
+    ///
     /// # Arguments
     /// * `event` - 체결 이벤트 데이터
-    /// 
+    ///
     /// # Returns
     /// 발행 성공 여부 (비동기, 논블로킹)
-    /// 
+    ///
     /// # 파티션 키
     /// - buyer_id를 파티션 키로 사용
-    /// - 같은 유저의 이벤트는 같은 파티션으로 보장 (순서 보장)
+    /// - 매도자의 다른 체결과 취소까지 같은 파티션으로 보내는 계약은 아니다.
     /// - seller_id는 별도로 발행하지 않음 (Java에서 buyer_id 기준으로 처리)
     pub async fn publish_trade_executed(
         &self,
@@ -87,16 +84,16 @@ impl KafkaProducer {
 
     /// 취소 이벤트 발행
     /// Publish order cancelled event
-    /// 
+    ///
     /// # Arguments
     /// * `event` - 취소 이벤트 데이터
-    /// 
+    ///
     /// # Returns
     /// 발행 성공 여부 (비동기, 논블로킹)
-    /// 
+    ///
     /// # 파티션 키
     /// - user_id를 파티션 키로 사용
-    /// - 같은 유저의 이벤트는 같은 파티션으로 보장 (순서 보장)
+    /// - 매도자의 다른 체결과 취소까지 같은 파티션으로 보내는 계약은 아니다.
     pub async fn publish_order_cancelled(
         &self,
         event: &crate::shared::kafka::events::OrderCancelledEvent,
@@ -108,26 +105,17 @@ impl KafkaProducer {
     }
 
     /// Kafka 메시지 발행 (내부 메서드)
-    /// 
+    ///
     /// # Arguments
     /// * `topic` - 토픽 이름
     /// * `key` - 메시지 키 (옵션)
     /// * `value` - 메시지 값 (JSON 직렬화)
-    /// 
+    ///
     /// # Returns
     /// 발행 성공 여부
-    async fn publish<T: Serialize>(
-        &self,
-        topic: &str,
-        key: Option<&str>,
-        value: &T,
-    ) -> Result<()> {
+    async fn publish<T: Serialize>(&self, topic: &str, key: Option<&str>, value: &T) -> Result<()> {
         // JSON 직렬화
-        let json = serde_json::to_string(value)
-            .context("Failed to serialize event to JSON")?;
-        
-        // 디버깅: 실제 전송되는 JSON 확인
-        eprintln!("[KafkaProducer] 전송할 JSON: {}", json);
+        let json = serde_json::to_string(value).context("Failed to serialize event to JSON")?;
 
         // FutureRecord 생성
         let mut record = FutureRecord::to(topic);
@@ -136,29 +124,14 @@ impl KafkaProducer {
         }
         record = record.payload(&json);
 
-        // 비동기 발행 (논블로킹)
-        // 타임아웃 100ms로 설정하여 빠르게 실패 처리
-        match tokio::time::timeout(
-            Duration::from_millis(100),
-            self.producer.send(record, Duration::from_secs(0)),
-        )
-        .await
-        {
-            Ok(Ok((_partition, _offset))) => {
-                // 성공
-                Ok(())
-            }
-            Ok(Err((e, _message))) => {
-                // Kafka 에러
-                eprintln!("[KafkaProducer] Failed to send message to {}: {:?}", topic, e);
-                Ok(()) // 에러를 무시하고 계속 진행 (엔진 성능에 영향 없음)
-            }
-            Err(_) => {
-                // 타임아웃
-                eprintln!("[KafkaProducer] Timeout sending message to {}", topic);
-                Ok(()) // 타임아웃을 무시하고 계속 진행
-            }
-        }
+        // 출력 워커가 브로커의 완료 확인을 기다린다. 짧은 별도 시간 제한으로
+        // 확인 대기를 끊지 않고 클라이언트의 전달 제한 시간을 따른다.
+        // 오류는 성공으로 숨기지 않으며 미확인 결과의 자동 재전송도 하지 않는다.
+        self.producer
+            .send(record, Duration::ZERO)
+            .await
+            .map(|_| ())
+            .map_err(|(error, _)| anyhow::anyhow!("Kafka delivery failed: {}", error))
     }
 }
 
@@ -174,12 +147,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn output_kafka_delivery_failure_is_not_reported_as_success() {
+        // 사용하지 않는 루프백 포트로 실제 클라이언트의 전달 실패를 만든다.
+        // 기존 브로커나 업무 토픽에는 접근하지 않는다.
+        let producer = KafkaProducer::new("127.0.0.1:1").unwrap();
+        let result = tokio::time::timeout(
+            Duration::from_secs(8),
+            producer.publish(
+                "isolated-output-failure",
+                None,
+                &TestEvent {
+                    order_id: 1,
+                    user_id: 1,
+                },
+            ),
+        )
+        .await;
+        assert!(result
+            .expect("client delivery deadline did not finish")
+            .is_err());
+    }
+
+    #[tokio::test]
     #[ignore] // Kafka 서버 필요
     async fn test_publish_trade_executed() {
         use crate::shared::kafka::events::TradeExecutedEvent;
-        use rust_decimal::Decimal;
         use chrono::Utc;
-        
+        use rust_decimal::Decimal;
+
         let producer = KafkaProducer::new("localhost:9092").unwrap();
         let event = TradeExecutedEvent {
             event_type: "trade_executed".to_string(),
