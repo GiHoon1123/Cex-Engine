@@ -8,7 +8,8 @@ use anyhow::{ensure, Context, Result};
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::Serialize;
-use sqlx::PgPool;
+use sqlx::{PgPool, Row, FromRow, postgres::PgRow};
+use crate::shared::database::exact_decimal::read_optional_decimal;
 use utoipa::ToSchema;
 
 use crate::domains::cex::models::order::CreateOrderRequest;
@@ -35,7 +36,6 @@ pub struct AcceptanceResult {
     pub created: bool,
 }
 
-#[derive(sqlx::FromRow)]
 struct StoredCommand {
     order_id: i64,
     user_id: i64,
@@ -47,6 +47,22 @@ struct StoredCommand {
     amount: Option<Decimal>,
     quote_amount: Option<Decimal>,
     accepted_at: DateTime<Utc>,
+}
+
+// NUMERIC을 직접 Decimal로 decode하지 않는다. SELECT/RETURNING의 text 컬럼을
+// 검사해 변환하고, DB에는 저장돼도 Rust에 정확히 표현되지 않는 원본은 접수하지 않는다.
+impl<'r> FromRow<'r, PgRow> for StoredCommand {
+    fn from_row(row: &'r PgRow) -> std::result::Result<Self, sqlx::Error> {
+        Ok(Self {
+            order_id: row.try_get("order_id")?, user_id: row.try_get("user_id")?,
+            order_type: row.try_get("order_type")?, order_side: row.try_get("order_side")?,
+            base_mint: row.try_get("base_mint")?, quote_mint: row.try_get("quote_mint")?,
+            price: read_optional_decimal(row,"price")?,
+            amount: read_optional_decimal(row,"amount")?,
+            quote_amount: read_optional_decimal(row,"quote_amount")?,
+            accepted_at: row.try_get("accepted_at")?,
+        })
+    }
 }
 
 impl StoredCommand {
@@ -94,7 +110,7 @@ pub async fn accept(pool: &PgPool, request: &CreateOrderRequest) -> Result<Accep
         .execute(&mut *transaction)
         .await?;
     let existing =
-        sqlx::query_as::<_, StoredCommand>("SELECT * FROM engine_order_receipts WHERE order_id=$1")
+        sqlx::query_as::<_, StoredCommand>("SELECT order_id,user_id,order_type,order_side,base_mint,quote_mint,price::text AS price,amount::text AS amount,quote_amount::text AS quote_amount,accepted_at FROM engine_order_receipts WHERE order_id=$1")
             .bind(order_id)
             .fetch_optional(&mut *transaction)
             .await?;
@@ -111,7 +127,7 @@ pub async fn accept(pool: &PgPool, request: &CreateOrderRequest) -> Result<Accep
     // 현재 상태 테이블의 수량으로 시장가 매수 예산을 재구성하지 않는다.
     let original = sqlx::query_as::<_, StoredCommand>(
         "SELECT s.order_id,s.user_id,s.order_type,s.order_side,s.base_mint,s.quote_mint,
-                s.price,s.amount,s.quote_amount,now() AS accepted_at
+                s.price::text AS price,s.amount::text AS amount,s.quote_amount::text AS quote_amount,now() AS accepted_at
          FROM order_submissions s JOIN orders o ON o.id=s.order_id
          WHERE s.order_id=$1 AND s.user_id=$2 AND o.user_id=$2
            AND o.status='pending' AND o.filled_amount=0
@@ -127,7 +143,7 @@ pub async fn accept(pool: &PgPool, request: &CreateOrderRequest) -> Result<Accep
             // 첫 조회 직후 경쟁 요청이 접수·처리해 주문을 종료했을 수 있다.
             // 변경된 주문 상태만 보고 거부하지 않고 새 스냅샷에서 접수를 다시 확인한다.
             let existing = sqlx::query_as::<_, StoredCommand>(
-                "SELECT * FROM engine_order_receipts WHERE order_id=$1",
+                "SELECT order_id,user_id,order_type,order_side,base_mint,quote_mint,price::text AS price,amount::text AS amount,quote_amount::text AS quote_amount,accepted_at FROM engine_order_receipts WHERE order_id=$1",
             )
             .bind(order_id)
             .fetch_optional(&mut *transaction)
@@ -149,7 +165,7 @@ pub async fn accept(pool: &PgPool, request: &CreateOrderRequest) -> Result<Accep
         "INSERT INTO engine_order_receipts
          (order_id,user_id,order_type,order_side,base_mint,quote_mint,price,amount,quote_amount)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-         ON CONFLICT (order_id) DO NOTHING RETURNING *",
+         ON CONFLICT (order_id) DO NOTHING RETURNING order_id,user_id,order_type,order_side,base_mint,quote_mint,price::text AS price,amount::text AS amount,quote_amount::text AS quote_amount,accepted_at",
     )
     .bind(order_id)
     .bind(user_id)
@@ -167,7 +183,7 @@ pub async fn accept(pool: &PgPool, request: &CreateOrderRequest) -> Result<Accep
         Some(row) => row,
         None => {
             sqlx::query_as::<_, StoredCommand>(
-                "SELECT * FROM engine_order_receipts WHERE order_id=$1",
+                "SELECT order_id,user_id,order_type,order_side,base_mint,quote_mint,price::text AS price,amount::text AS amount,quote_amount::text AS quote_amount,accepted_at FROM engine_order_receipts WHERE order_id=$1",
             )
             .bind(order_id)
             .fetch_one(&mut *transaction)

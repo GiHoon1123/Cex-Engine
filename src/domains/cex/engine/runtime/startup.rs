@@ -59,7 +59,7 @@ pub(super) async fn load_balances(pool: &PgPool) -> Result<BalanceCache> {
     }
 
     let rows = sqlx::query(
-        "SELECT user_id, mint_address, available, locked FROM user_balances
+        "SELECT user_id, mint_address, available::text AS available, locked::text AS locked FROM user_balances
          ORDER BY user_id, mint_address",
     )
     .fetch_all(&mut *transaction)
@@ -77,8 +77,8 @@ pub(super) async fn load_balances(pool: &PgPool) -> Result<BalanceCache> {
         );
         let user_id = u64::try_from(stored_user_id)?;
         let mint: String = row.try_get("mint_address")?;
-        let available: Decimal = row.try_get("available")?;
-        let locked: Decimal = row.try_get("locked")?;
+        let available = crate::shared::database::exact_decimal::read_decimal(&row, "available")?;
+        let locked = crate::shared::database::exact_decimal::read_decimal(&row, "locked")?;
 
         ensure!(
             !mint.is_empty() && mint.trim() == mint,
@@ -91,6 +91,10 @@ pub(super) async fn load_balances(pool: &PgPool) -> Result<BalanceCache> {
             user_id,
             mint
         );
+        // 저장 스키마가 잘못 확장돼도 실행 캐시와 다른 금액 계약을 허용하지 않는다.
+        let upper_bound = Decimal::from_i128_with_scale(1_000_000_000_000_000_000_000, 0);
+        ensure!(available < upper_bound && available.normalize().scale() <= 9,
+            "Engine startup blocked: available exceeds NUMERIC(30,9)");
         ensure!(
             locked == Decimal::ZERO,
             "Engine startup blocked: unresolved locked balance for user={}, mint={}; authoritative replay is required",

@@ -327,3 +327,36 @@ async fn empty_database_starts_and_stopped_instance_cannot_restart(pool: PgPool)
         .contains("create a new instance"));
     Ok(())
 }
+
+// 큰 값도 Decimal에 정확히 표현되면 그대로 복원해야 한다. 표시상 끝의 0을
+// 제거하되 정수부와 소수부의 유효 숫자를 잃지 않는지 실제 DB 경계를 검사한다.
+#[sqlx::test(migrations = false)]
+async fn startup_preserves_large_exact_fraction_without_decoder_panic(pool: PgPool) -> Result<()> {
+    create_schema(&pool).await?;
+    pool.execute("INSERT INTO user_balances (id,user_id,mint_address,available,locked)
+        VALUES (1,101,'USDT',99999999999999999999.12345678,0)").await?;
+    let cache = super::super::startup::load_balances(&pool).await?;
+    assert_eq!(cache.get_balance(101,"USDT").unwrap().available,
+        Decimal::from_str_exact("99999999999999999999.12345678")?);
+    Ok(())
+}
+
+#[sqlx::test(migrations = false)]
+async fn startup_rejects_unrepresentable_decimal_without_panic(pool: PgPool) -> Result<()> {
+    create_schema(&pool).await?;
+    pool.execute("INSERT INTO user_balances (id,user_id,mint_address,available,locked)
+        VALUES (1,101,'USDT',999999999999999999999.123456789,0)").await?;
+    assert_start_blocked(pool,"available").await
+}
+
+#[sqlx::test(migrations = false)]
+async fn startup_rejects_available_outside_current_storage_contract(pool: PgPool) -> Result<()> {
+    create_schema(&pool).await?;
+    for value in ["1000000000000000000000", "0.0000000001"] {
+        sqlx::query("INSERT INTO user_balances(id,user_id,mint_address,available,locked)
+            VALUES(1,101,'USDT',$1::text::numeric,0)").bind(value).execute(&pool).await?;
+        assert_start_blocked(pool.clone(),"available").await?;
+        pool.execute("DELETE FROM user_balances WHERE id=1").await?;
+    }
+    Ok(())
+}

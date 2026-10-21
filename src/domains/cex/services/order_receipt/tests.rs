@@ -381,3 +381,25 @@ async fn concurrent_completion_keeps_duplicate_acceptance_valid(pool: PgPool) ->
     assert_eq!(created, 1);
     Ok(())
 }
+
+#[sqlx::test(migrations = false)]
+async fn receipt_preserves_large_exact_amount_without_decoder_panic(pool: PgPool) -> Result<()> {
+    schema(&pool).await?;
+    pool.execute("UPDATE order_submissions SET price=1,amount=99999999999999999999.123456780").await?;
+    let mut command=request();
+    command.price=Some(Decimal::ONE);
+    command.amount=Some(Decimal::from_str_exact("99999999999999999999.12345678")?);
+    assert!(accept(&pool,&command).await?.created);
+    assert!(!accept(&pool,&command).await?.created);
+    Ok(())
+}
+
+#[sqlx::test(migrations = false)]
+async fn receipt_rejects_unrepresentable_original_without_panic(pool: PgPool) -> Result<()> {
+    schema(&pool).await?;
+    pool.execute("UPDATE order_submissions SET amount=999999999999999999999.123456789").await?;
+    assert!(accept(&pool,&request()).await.is_err());
+    let count:i64=sqlx::query_scalar("SELECT count(*) FROM engine_order_receipts").fetch_one(&pool).await?;
+    assert_eq!(count,0);
+    Ok(())
+}
