@@ -940,6 +940,9 @@ impl HighPerformanceEngine {
 #[cfg(test)]
 mod startup_tests;
 
+#[cfg(test)]
+mod reservation_tests;
+
 
 #[cfg(test)]
 impl HighPerformanceEngine {
