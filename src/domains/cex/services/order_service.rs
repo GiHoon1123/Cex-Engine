@@ -1,7 +1,6 @@
-use std::sync::Arc;
 use crate::shared::database::{Database, OrderRepository};
 use crate::domains::cex::models::order::{Order, CreateOrderRequest};
-use crate::domains::cex::engine::{Engine, TradingPair, OrderEntry, entry_to_order, runtime::HighPerformanceEngine};
+use crate::domains::cex::engine::{Engine, TradingPair, OrderEntry, entry_to_order, runtime::EngineHandle};
 use anyhow::{Context, Result, bail};
 use rust_decimal::Decimal;
 use chrono::Utc;
@@ -11,7 +10,7 @@ use super::order_receipt::{self, AcceptanceResult};
 ///
 /// 생성은 DB 접수 커밋 뒤 최초 요청만 큐로 전달한다. 여기서 반환하는 접수 증명은
 /// 체결 완료·주문장 복구 가능성을 뜻하지 않는다. 취소·조회는 기존 메서드가 담당한다.
-/// 동일한 Arc<Mutex<HighPerformanceEngine>>를 공유하며 HTTP 작업 밖의 별도 spawn은 없다.
+/// 명령 핸들만 복제한다. 요청 전체를 잠그거나 거래 상태를 공유하지 않는다.
 #[derive(Clone)]
 pub struct OrderService {
     /// 데이터베이스 연결
@@ -23,12 +22,12 @@ pub struct OrderService {
     /// 
     /// 엔진은 하나만 존재하므로 구체 타입을 직접 사용합니다.
     /// Wrapper 없이 동일한 인스턴스를 공유합니다.
-    engine: Arc<tokio::sync::Mutex<HighPerformanceEngine>>,
+    engine: EngineHandle,
 }
 
 impl OrderService {
     /// 공유 DB 풀과 실행 엔진을 빌려 쓴다. 서비스 복제 자체는 접수 기록을 복제하지 않는다.
-    pub fn new(db: Database, engine: Arc<tokio::sync::Mutex<HighPerformanceEngine>>) -> Self {
+    pub fn new(db: Database, engine: EngineHandle) -> Self {
         Self { db, engine }
     }
 
@@ -59,7 +58,7 @@ impl OrderService {
         };
         // 분리된 tokio::spawn은 제거한다. 이 HTTP 작업이 영속 접수의 삽입 승자이며
         // 큐 전달을 한 번 시도한다. 실패해도 접수 기록을 삭제하거나 거짓 거부로 바꾸지 않는다.
-        if let Err(error) = self.engine.lock().await.submit_order(entry).await {
+        if let Err(error) = self.engine.submit_order(entry).await {
             eprintln!("[Order] 접수 저장 후 큐 전달 실패: order_id={}, error={}", accepted.receipt.order_id, error);
         }
         Ok(accepted)
@@ -141,8 +140,7 @@ impl OrderService {
         );
 
         let _cancelled_entry = {
-            let engine_guard = self.engine.lock().await;
-            engine_guard
+            self.engine
                 .cancel_order(order_id, user_id, &trading_pair)
                 .await
                 .context("Failed to cancel order in engine")?

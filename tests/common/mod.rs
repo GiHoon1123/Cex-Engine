@@ -225,7 +225,7 @@ pub async fn setup_orderbook(engine: &mut HighPerformanceEngine) {
             created_at: Utc::now(),
         };
         
-        engine.submit_order(order).await
+        engine.handle().submit_order(order).await
             .expect(&format!("Failed to submit buy order for user {}", user_id));
     }
     
@@ -255,7 +255,7 @@ pub async fn setup_orderbook(engine: &mut HighPerformanceEngine) {
             created_at: Utc::now(),
         };
         
-        engine.submit_order(order).await
+        engine.handle().submit_order(order).await
             .expect(&format!("Failed to submit sell order for user {}", user_id));
     }
     

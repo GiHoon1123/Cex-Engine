@@ -39,7 +39,7 @@ async fn test_market_buy_full_fill() {
     };
     
     // 주문 제출 (성공해야 함 - 오더북에 매도 주문이 있으므로)
-    let result = engine.submit_order(buy_order).await;
+    let result = engine.handle().submit_order(buy_order).await;
     assert!(result.is_ok(), "Failed to submit market buy order: {:?}", result.err());
     
     // 백그라운드 처리 대기 (엔진이 주문 처리할 시간)
@@ -74,7 +74,7 @@ async fn test_market_buy_partial_fill() {
     };
     
     // 주문 제출
-    let result = engine.submit_order(buy_order).await;
+    let result = engine.handle().submit_order(buy_order).await;
     // 부분 체결 후 실패해야 함 (남은 잔고 언락 확인)
     // 실제로는 에러가 반환되어야 함
     
@@ -139,7 +139,7 @@ async fn test_market_sell_full_fill() {
     };
     
     // 주문 제출
-    let result = engine.submit_order(sell_order).await;
+    let result = engine.handle().submit_order(sell_order).await;
     assert!(result.is_ok(), "Failed to submit market sell order: {:?}", result.err());
     
     teardown_test(&mut engine, &db).await;
@@ -171,7 +171,7 @@ async fn test_market_sell_partial_fill() {
     };
     
     // 주문 제출
-    let result = engine.submit_order(sell_order).await;
+    let result = engine.handle().submit_order(sell_order).await;
     // 부분 체결 후 실패해야 함 (남은 잔고 언락 확인)
     
     teardown_test(&mut engine, &db).await;

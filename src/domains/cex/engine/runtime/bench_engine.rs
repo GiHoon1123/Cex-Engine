@@ -38,6 +38,15 @@ pub struct BenchEngine {
 }
 
 impl BenchEngine {
+    /// 실제 워커와 순수 계산의 잔액 결과를 비교한다. 테스트에만 포함하며
+    /// 실행 중인 워커의 캐시를 외부에 공유하는 API를 추가하지 않는다.
+    #[cfg(test)]
+    pub(crate) fn test_balance(&self, user: u64, asset: &str) -> (Decimal, Decimal) {
+        self.executor.balance_cache().get_balance(user, asset)
+            .map(|balance| (balance.available, balance.locked))
+            .unwrap_or((Decimal::ZERO, Decimal::ZERO))
+    }
+
     /// 새 벤치마크 엔진 생성
     pub fn new() -> Self {
         Self {

@@ -4,6 +4,7 @@
 //! localhost:5432·공유 테이블 전체 삭제 헬퍼를 사용하지 않는다.
 
 use super::*;
+use crate::domains::cex::engine::Engine;
 use sqlx::{Executor as _, PgPool};
 use std::path::PathBuf;
 
@@ -24,8 +25,13 @@ async fn create_schema(pool: &PgPool) -> Result<()> {
     .await?;
     pool.execute("CREATE TABLE orders (id BIGINT PRIMARY KEY, status TEXT)")
         .await?;
-    pool.execute("CREATE TABLE order_submissions (order_id BIGINT UNIQUE)").await?;
-    pool.execute(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/schema/order_receipts.sql"))).await?;
+    pool.execute("CREATE TABLE order_submissions (order_id BIGINT UNIQUE)")
+        .await?;
+    pool.execute(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/schema/order_receipts.sql"
+    )))
+    .await?;
     Ok(())
 }
 
@@ -57,8 +63,10 @@ async fn assert_start_blocked(pool: PgPool, expected_reason: &str) -> Result<()>
         || engine.wal_thread.is_some()
         || engine.db_writer_thread.is_some();
     let published_balance = engine
+        .state
+        .as_mut()
+        .unwrap()
         .executor
-        .lock()
         .balance_cache()
         .get_balance(101, "USDT")
         .is_some();
@@ -102,7 +110,6 @@ async fn startup_rejects_receipt_even_with_terminal_order(pool: PgPool) -> Resul
         VALUES(1,101,'buy','limit','SOL','USDT',100,2)").await?;
     assert_start_blocked(pool, "durable receipt").await
 }
-
 
 #[sqlx::test(migrations = false)]
 async fn startup_rejects_negative_available_balance(pool: PgPool) -> Result<()> {
@@ -236,9 +243,10 @@ async fn startup_preserves_exact_balances_with_terminal_order_history(pool: PgPo
 
     let (mut engine, wal_dir) = create_engine(pool.clone());
     engine.start().await?;
-    let balance = engine.get_balance(101, "USDT").await?;
-    let zero_balance = engine.get_balance(102, "SOL").await?;
+    let balance = engine.handle().get_balance(101, "USDT").await?;
+    let zero_balance = engine.handle().get_balance(102, "SOL").await?;
     let orders = engine
+        .handle()
         .get_orderbook(&TradingPair::new("SOL".into(), "USDT".into()), None)
         .await?;
     finish_engine(&mut engine, &wal_dir).await?;
@@ -277,7 +285,7 @@ async fn startup_reads_one_repeatable_read_readonly_snapshot(pool: PgPool) -> Re
 
     let (mut engine, wal_dir) = create_engine(pool);
     engine.start().await?;
-    let balance = engine.get_balance(101, "USDT").await?;
+    let balance = engine.handle().get_balance(101, "USDT").await?;
     finish_engine(&mut engine, &wal_dir).await?;
     assert_eq!(balance, (Decimal::new(100, 0), Decimal::ZERO));
     Ok(())
@@ -295,15 +303,13 @@ async fn duplicate_start_does_not_reload_or_replace_running_state(pool: PgPool) 
     let (mut engine, wal_dir) = create_engine(pool);
     engine.start().await?;
     // 엔진의 현재 상태를 DB와 다르게 만들어 중복 start가 이를 덮지 않는지 확인한다.
-    // 이는 이 테스트 안에서만 수행하는 조작이며 외부 증감 API를 호출하지 않는다.
-    engine.executor.lock().balance_cache_mut().set_balance(
-        101,
-        "USDT",
-        Decimal::new(90, 0),
-        Decimal::new(10, 0),
-    );
+    // 워커 소유 상태는 직접 만지지 않고, 직렬화된 예약 명령으로 90/10을 만든다.
+    engine
+        .handle()
+        .lock_balance(101, "USDT", Decimal::from(10))
+        .await?;
     let result = engine.start().await;
-    let balance = engine.get_balance(101, "USDT").await?;
+    let balance = engine.handle().get_balance(101, "USDT").await?;
     finish_engine(&mut engine, &wal_dir).await?;
 
     assert!(result.unwrap_err().to_string().contains("already running"));
@@ -316,7 +322,7 @@ async fn empty_database_starts_and_stopped_instance_cannot_restart(pool: PgPool)
     create_schema(&pool).await?;
     let (mut engine, wal_dir) = create_engine(pool);
     engine.start().await?;
-    let balance = engine.get_balance(101, "USDT").await?;
+    let balance = engine.handle().get_balance(101, "USDT").await?;
     finish_engine(&mut engine, &wal_dir).await?;
     let result = engine.start().await;
 
@@ -333,29 +339,42 @@ async fn empty_database_starts_and_stopped_instance_cannot_restart(pool: PgPool)
 #[sqlx::test(migrations = false)]
 async fn startup_preserves_large_exact_fraction_without_decoder_panic(pool: PgPool) -> Result<()> {
     create_schema(&pool).await?;
-    pool.execute("INSERT INTO user_balances (id,user_id,mint_address,available,locked)
-        VALUES (1,101,'USDT',99999999999999999999.12345678,0)").await?;
+    pool.execute(
+        "INSERT INTO user_balances (id,user_id,mint_address,available,locked)
+        VALUES (1,101,'USDT',99999999999999999999.12345678,0)",
+    )
+    .await?;
     let cache = super::super::startup::load_balances(&pool).await?;
-    assert_eq!(cache.get_balance(101,"USDT").unwrap().available,
-        Decimal::from_str_exact("99999999999999999999.12345678")?);
+    assert_eq!(
+        cache.get_balance(101, "USDT").unwrap().available,
+        Decimal::from_str_exact("99999999999999999999.12345678")?
+    );
     Ok(())
 }
 
 #[sqlx::test(migrations = false)]
 async fn startup_rejects_unrepresentable_decimal_without_panic(pool: PgPool) -> Result<()> {
     create_schema(&pool).await?;
-    pool.execute("INSERT INTO user_balances (id,user_id,mint_address,available,locked)
-        VALUES (1,101,'USDT',999999999999999999999.123456789,0)").await?;
-    assert_start_blocked(pool,"available").await
+    pool.execute(
+        "INSERT INTO user_balances (id,user_id,mint_address,available,locked)
+        VALUES (1,101,'USDT',999999999999999999999.123456789,0)",
+    )
+    .await?;
+    assert_start_blocked(pool, "available").await
 }
 
 #[sqlx::test(migrations = false)]
 async fn startup_rejects_available_outside_current_storage_contract(pool: PgPool) -> Result<()> {
     create_schema(&pool).await?;
     for value in ["1000000000000000000000", "0.0000000001"] {
-        sqlx::query("INSERT INTO user_balances(id,user_id,mint_address,available,locked)
-            VALUES(1,101,'USDT',$1::text::numeric,0)").bind(value).execute(&pool).await?;
-        assert_start_blocked(pool.clone(),"available").await?;
+        sqlx::query(
+            "INSERT INTO user_balances(id,user_id,mint_address,available,locked)
+            VALUES(1,101,'USDT',$1::text::numeric,0)",
+        )
+        .bind(value)
+        .execute(&pool)
+        .await?;
+        assert_start_blocked(pool.clone(), "available").await?;
         pool.execute("DELETE FROM user_balances WHERE id=1").await?;
     }
     Ok(())

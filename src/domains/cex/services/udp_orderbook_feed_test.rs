@@ -40,10 +40,10 @@ mod tests {
 
     /// 테스트용 엔진 생성
     /// Create test engine
-    async fn create_test_engine() -> Arc<tokio::sync::Mutex<HighPerformanceEngine>> {
+    async fn create_test_engine() -> HighPerformanceEngine {
         let db = create_test_db().await;
         let engine = HighPerformanceEngine::new(db);
-        Arc::new(tokio::sync::Mutex::new(engine))
+        engine
     }
 
     /// UDP 수신기 생성 (테스트용)
@@ -100,10 +100,9 @@ mod tests {
         let multicast_addr = "224.0.0.1";
         
         // 2. 엔진 생성 및 시작
-        let engine = create_test_engine().await;
+        let mut engine = create_test_engine().await;
         {
-            let mut engine_guard = engine.lock().await;
-            engine_guard.start().await.expect("Failed to start engine");
+            engine.start().await.expect("Failed to start engine");
         }
         
         // 3. UDP 피드 생성 및 시작
@@ -114,7 +113,7 @@ mod tests {
             depth: 10,
         };
         
-        let feed = UdpOrderbookFeed::new(engine.clone(), Some(config))
+        let feed = UdpOrderbookFeed::new(engine.handle(), Some(config))
             .await
             .expect("Failed to create UDP feed");
         
@@ -215,10 +214,9 @@ mod tests {
         let multicast_addr = "224.0.0.1";
         
         // 2. 엔진 생성 및 시작
-        let engine = create_test_engine().await;
+        let mut engine = create_test_engine().await;
         {
-            let mut engine_guard = engine.lock().await;
-            engine_guard.start().await.expect("Failed to start engine");
+            engine.start().await.expect("Failed to start engine");
         }
         
         // 3. UDP 피드 생성 및 시작
@@ -229,7 +227,7 @@ mod tests {
             depth: 10,
         };
         
-        let feed = UdpOrderbookFeed::new(engine.clone(), Some(config))
+        let feed = UdpOrderbookFeed::new(engine.handle(), Some(config))
             .await
             .expect("Failed to create UDP feed");
         
@@ -274,10 +272,9 @@ mod tests {
         let multicast_addr = "224.0.0.1";
         
         // 2. 엔진 생성 및 시작
-        let engine = create_test_engine().await;
+        let mut engine = create_test_engine().await;
         {
-            let mut engine_guard = engine.lock().await;
-            engine_guard.start().await.expect("Failed to start engine");
+            engine.start().await.expect("Failed to start engine");
         }
         
         // 3. UDP 피드 생성 및 시작
@@ -288,7 +285,7 @@ mod tests {
             depth: 10,
         };
         
-        let feed = UdpOrderbookFeed::new(engine.clone(), Some(config))
+        let feed = UdpOrderbookFeed::new(engine.handle(), Some(config))
             .await
             .expect("Failed to create UDP feed");
         
@@ -330,10 +327,9 @@ mod tests {
         let multicast_addr = "224.0.0.1";
         
         // 2. 엔진 생성 및 시작
-        let engine = create_test_engine().await;
+        let mut engine = create_test_engine().await;
         {
-            let mut engine_guard = engine.lock().await;
-            engine_guard.start().await.expect("Failed to start engine");
+            engine.start().await.expect("Failed to start engine");
         }
         
         // 3. 테스트 주문 추가 (엔진에 직접 주문 제출)
@@ -349,7 +345,7 @@ mod tests {
             depth: 10,
         };
         
-        let feed = UdpOrderbookFeed::new(engine.clone(), Some(config))
+        let feed = UdpOrderbookFeed::new(engine.handle(), Some(config))
             .await
             .expect("Failed to create UDP feed");
         

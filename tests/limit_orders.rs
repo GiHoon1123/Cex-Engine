@@ -34,7 +34,7 @@ async fn test_limit_buy_full_fill() {
     };
     
     // 주문 제출
-    let result = engine.submit_order(buy_order).await;
+    let result = engine.handle().submit_order(buy_order).await;
     assert!(result.is_ok(), "Failed to submit buy order: {:?}", result.err());
     
     // 주문이 완전히 체결되었는지 확인 (오더북에 남지 않아야 함)
@@ -69,7 +69,7 @@ async fn test_limit_buy_partial_fill() {
     };
     
     // 주문 제출
-    let result = engine.submit_order(buy_order).await;
+    let result = engine.handle().submit_order(buy_order).await;
     assert!(result.is_ok(), "Failed to submit buy order: {:?}", result.err());
     
     // 부분 체결 확인 (오더북에 남은 주문이 있는지 확인)
@@ -104,7 +104,7 @@ async fn test_limit_buy_no_fill() {
     };
     
     // 주문 제출
-    let result = engine.submit_order(buy_order).await;
+    let result = engine.handle().submit_order(buy_order).await;
     assert!(result.is_ok(), "Failed to submit buy order: {:?}", result.err());
     
     // 오더북에 주문이 추가되었는지 확인
@@ -139,7 +139,7 @@ async fn test_limit_sell_full_fill() {
     };
     
     // 주문 제출
-    let result = engine.submit_order(sell_order).await;
+    let result = engine.handle().submit_order(sell_order).await;
     assert!(result.is_ok(), "Failed to submit sell order: {:?}", result.err());
     
     teardown_test(&mut engine, &db).await;
@@ -171,7 +171,7 @@ async fn test_limit_sell_partial_fill() {
     };
     
     // 주문 제출
-    let result = engine.submit_order(sell_order).await;
+    let result = engine.handle().submit_order(sell_order).await;
     assert!(result.is_ok(), "Failed to submit sell order: {:?}", result.err());
     
     teardown_test(&mut engine, &db).await;
@@ -203,7 +203,7 @@ async fn test_limit_sell_no_fill() {
     };
     
     // 주문 제출
-    let result = engine.submit_order(sell_order).await;
+    let result = engine.handle().submit_order(sell_order).await;
     assert!(result.is_ok(), "Failed to submit sell order: {:?}", result.err());
     
     teardown_test(&mut engine, &db).await;

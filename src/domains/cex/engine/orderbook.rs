@@ -63,11 +63,11 @@ impl OrderBookSide {
     /// 임시 prefix에 이동시킨 뒤 역순 push_front로 원래 FIFO 위치를 복원한다.
     pub(crate) fn apply_prepared_orders(&mut self, changes:BTreeMap<Decimal,HashMap<u64,OrderEntry>>) {
         for (price,mut changed) in changes {
-            let queue=self.orders.get_mut(&price).expect("planned price remains under write lock");
+            let queue=self.orders.get_mut(&price).expect("planned price remains during exclusive borrow");
             let before=queue.len();
             let mut prefix=VecDeque::new();
             while !changed.is_empty() {
-                let order=queue.pop_front().expect("planned maker remains under write lock");
+                let order=queue.pop_front().expect("planned maker remains during exclusive borrow");
                 match changed.remove(&order.id) {
                     Some(next) if next.remaining_amount>Decimal::ZERO=>prefix.push_back(next),
                     Some(_)=>{}, // 완전 체결된 maker만 제거한다.

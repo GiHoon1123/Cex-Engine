@@ -19,7 +19,7 @@ pub(crate) struct AppliedSubmission {
     pub total_amount: Decimal,
 }
 
-/// 호출자는 함수 시작부터 종료까지 orderbooks → Executor 순서의 두 락을 유지한다.
+/// 호출자는 주문장과 실행 캐시를 독점 대여한다. 실행 중에는 단일 워커만 소유한다.
 /// 모든 Result 실패는 원본 변경 전에 일어난다. 원본 전체 복제·사후 역이체는 없다.
 pub(crate) fn apply(
     order: OrderEntry,
@@ -80,7 +80,7 @@ pub(crate) fn apply(
     if refund > Decimal::ZERO {
         prepared.unlock_balance(order.user_id, refund_mint, refund)?;
     }
-    // 이 아래에는 Result 오류·DB·채널이 없다. 두 락을 함께 쥔 호출자만
+    // 이 아래에는 금액 오류 반환·디비 접근·채널 전송이 없다. 상태를 독점 대여한 호출자만
     // 완성된 다음 상태를 게시한다. OOM·프로세스 종료의 내구성은 보장하지 않는다.
     plan.commit_book(
         books

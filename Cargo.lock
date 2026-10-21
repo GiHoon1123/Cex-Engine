@@ -1036,7 +1036,6 @@ dependencies = [
  "libc",
  "nix 0.27.1",
  "num-bigint 0.4.6",
- "parking_lot 0.12.5",
  "rdkafka",
  "reqwest",
  "rust_decimal",

@@ -12,10 +12,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use anyhow::{Result, Context};
 use crossbeam::channel::Receiver;
-use parking_lot::{RwLock, Mutex};
 use rust_decimal::Decimal;
 use sqlx::PgPool;
-use crate::shared::database::Database;
 
 use crate::domains::cex::engine::types::{TradingPair, OrderEntry, MatchResult};
 use crate::domains::cex::engine::orderbook::OrderBook;
@@ -49,9 +47,9 @@ use super::config::CoreConfig;
 /// * `balance_rx` - 잔고 업데이트 명령 수신 채널 (우선순위 높음)
 /// * `wal_tx` - WAL 메시지 전송 채널
 /// * `db_tx` - DB 명령 전송 채널
-/// * `orderbooks` - 거래쌍별 오더북 (공유)
-/// * `matcher` - 매칭 엔진 (공유)
-/// * `executor` - 체결 실행 엔진 (공유)
+/// * `orderbooks` - 거래쌍별 오더북 (이 스레드로 소유권 이동)
+/// * `matcher` - 매칭 엔진 (이 스레드 소유)
+/// * `executor` - 체결 실행 엔진 (이 스레드 소유)
 /// * `running` - 실행 중 여부 플래그
 /// 
 /// # 처리 흐름 (우선순위 기반)
@@ -87,21 +85,17 @@ use super::config::CoreConfig;
 /// - 입금 큐 우선: 입금이 선행되어야 주문 가능
 /// - 주문 큐: 입금 큐가 비어있을 때만 처리
 /// 
-/// # 성능
-/// - 주문 처리: < 0.5ms (평균)
-/// - 체결 처리: < 0.2ms (평균)
-/// - TPS: 50,000+ orders/sec
+/// 주문장과 실행 캐시는 이 스레드가 소유한다. 현재 성능은 별도 측정이 필요하다.
 pub fn engine_thread_loop(
     order_rx: Receiver<OrderCommand>,
     balance_rx: Receiver<BalanceCommand>,
     wal_tx: Option<crossbeam::channel::Sender<WalEntry>>,
     db_tx: Option<crossbeam::channel::Sender<super::db_commands::DbCommand>>,
     kafka_producer: Option<Arc<crate::shared::kafka::KafkaProducer>>,
-    orderbooks: Arc<RwLock<HashMap<TradingPair, OrderBook>>>,
-    matcher: Arc<Matcher>,
-    executor: Arc<Mutex<Executor>>,
+    mut orderbooks: HashMap<TradingPair, OrderBook>,
+    matcher: Matcher,
+    mut executor: Executor,
     running: Arc<std::sync::atomic::AtomicBool>,
-    db: Option<Database>,
 ) {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 1. 코어 고정 (Core 0에 고정) - PROD 환경만
@@ -163,7 +157,7 @@ pub fn engine_thread_loop(
                             response,
                             wal_tx.as_ref(),
                             db_tx.as_ref(),
-                            &executor,
+                            &mut executor,
                         );
                     }
                 }
@@ -204,9 +198,9 @@ pub fn engine_thread_loop(
                             wal_tx.as_ref(),
                             db_tx.as_ref(),
                             kafka_producer.as_ref(),
-                            &orderbooks,
+                            &mut orderbooks,
                             &matcher,
-                            &executor,
+                            &mut executor,
                         );
                     }
                     OrderCommand::CancelOrder { order_id, user_id, trading_pair, response } => {
@@ -218,9 +212,8 @@ pub fn engine_thread_loop(
                             wal_tx.as_ref(),
                             db_tx.as_ref(),
                             kafka_producer.as_ref(),
-                            &orderbooks,
-                            &executor,
-                            db.clone(),
+                            &mut orderbooks,
+                            &mut executor,
                         );
                     }
                     OrderCommand::GetOrderbook { trading_pair, depth, response } => {
@@ -228,7 +221,7 @@ pub fn engine_thread_loop(
                             trading_pair,
                             depth,
                             response,
-                            &orderbooks,
+                            &mut orderbooks,
                         );
                     }
                     OrderCommand::GetBalance { user_id, mint, response } => {
@@ -236,7 +229,7 @@ pub fn engine_thread_loop(
                             user_id,
                             mint,
                             response,
-                            &executor,
+                            &mut executor,
                         );
                     }
                     OrderCommand::LockBalance { user_id, mint, amount, response } => {
@@ -247,7 +240,7 @@ pub fn engine_thread_loop(
                             response,
                             wal_tx.as_ref(),
                             db_tx.as_ref(),
-                            &executor,
+                            &mut executor,
                         );
                     }
                     OrderCommand::UnlockBalance { user_id, mint, amount, response } => {
@@ -258,7 +251,7 @@ pub fn engine_thread_loop(
                             response,
                             wal_tx.as_ref(),
                             db_tx.as_ref(),
-                            &executor,
+                            &mut executor,
                         );
                     }
                 }
@@ -287,9 +280,9 @@ pub fn engine_thread_loop(
                                             wal_tx.as_ref(),
                                             db_tx.as_ref(),
                                             kafka_producer.as_ref(),
-                                            &orderbooks,
+                                            &mut orderbooks,
                                             &matcher,
-                                            &executor,
+                                            &mut executor,
                                         );
                                     }
                                     OrderCommand::CancelOrder { order_id, user_id, trading_pair, response } => {
@@ -301,9 +294,8 @@ pub fn engine_thread_loop(
                                             wal_tx.as_ref(),
                                             db_tx.as_ref(),
                                             kafka_producer.as_ref(),
-                                            &orderbooks,
-                                            &executor,
-                                            db.clone(),
+                                            &mut orderbooks,
+                                            &mut executor,
                                         );
                                     }
                                     OrderCommand::GetOrderbook { trading_pair, depth, response } => {
@@ -311,7 +303,7 @@ pub fn engine_thread_loop(
                                             trading_pair,
                                             depth,
                                             response,
-                                            &orderbooks,
+                                            &mut orderbooks,
                                         );
                                     }
                                     OrderCommand::GetBalance { user_id, mint, response } => {
@@ -319,7 +311,7 @@ pub fn engine_thread_loop(
                                             user_id,
                                             mint,
                                             response,
-                                            &executor,
+                                            &mut executor,
                                         );
                                     }
                                     OrderCommand::LockBalance { user_id, mint, amount, response } => {
@@ -330,7 +322,7 @@ pub fn engine_thread_loop(
                                             response,
                                             wal_tx.as_ref(),
                                             db_tx.as_ref(),
-                                            &executor,
+                                            &mut executor,
                                         );
                                     }
                                     OrderCommand::UnlockBalance { user_id, mint, amount, response } => {
@@ -341,7 +333,7 @@ pub fn engine_thread_loop(
                                             response,
                                             wal_tx.as_ref(),
                                             db_tx.as_ref(),
-                                            &executor,
+                                            &mut executor,
                                         );
                                     }
                                 }
@@ -374,7 +366,7 @@ pub fn engine_thread_loop(
 /// 
 /// # 처리 과정
 /// 1. 원본을 읽어 후보 매칭과 전체 잔액·예약 반환을 준비
-/// 2. 같은 락 아래에서 주문장·캐시를 메모리에 확정
+/// 2. 같은 워커의 독점 대여 안에서 주문장·캐시를 메모리에 확정
 /// 3. 기존 DB·Kafka 후속 전달 (영속 확정과 메모리는 별도 경계)
 /// 4. response가 있을 때만 결과 반환. 영속 접수 HTTP는 실행 완료 증명이 아님
 fn handle_submit_order(
@@ -383,9 +375,9 @@ fn handle_submit_order(
     wal_tx: Option<&crossbeam::channel::Sender<WalEntry>>,
     db_tx: Option<&crossbeam::channel::Sender<super::db_commands::DbCommand>>,
     kafka_producer: Option<&Arc<KafkaProducer>>,
-    orderbooks: &Arc<RwLock<HashMap<TradingPair, OrderBook>>>,
-    matcher: &Arc<Matcher>,
-    executor: &Arc<Mutex<Executor>>,
+    orderbooks: &mut HashMap<TradingPair, OrderBook>,
+    matcher: &Matcher,
+    executor: &mut Executor,
 ) {
     eprintln!("[Engine Thread] handle_submit_order 호출: order_id={}, user_id={}, order_type={}, order_side={}, price={:?}, amount={}", 
              order.id, order.user_id, order.order_type, order.order_side, order.price, order.amount);
@@ -403,17 +395,15 @@ pub(crate) fn process_submit_order(
     _wal_tx: Option<&crossbeam::channel::Sender<WalEntry>>,
     db_tx: Option<&crossbeam::channel::Sender<super::db_commands::DbCommand>>,
     kafka_producer: Option<&Arc<KafkaProducer>>,
-    orderbooks: &Arc<RwLock<HashMap<TradingPair, OrderBook>>>,
-    matcher: &Arc<Matcher>,
-    executor: &Arc<Mutex<Executor>>,
+    orderbooks: &mut HashMap<TradingPair, OrderBook>,
+    matcher: &Matcher,
+    executor: &mut Executor,
 ) -> Result<Vec<MatchResult>> {
     let is_market_order=order.order_side=="market";
     let applied={
-        // 취소와 같은 orderbooks → Executor 순서다. 준비 도중 다른 마켓의
-        // 공통 자산 쓰기나 HTTP 주문장 조회가 중간 상태를 관찰하지 못한다.
-        let mut books=orderbooks.write();
-        let mut executor=executor.lock();
-        super::submission::apply(order,&mut books,matcher,&mut executor)?
+        // 이 상태는 현재 워커만 소유한다. &mut 대여가 끝나기 전에는 다음
+        // 명령을 처리하지 않으므로 공유 락 없이 준비·확정을 수행한다.
+        super::submission::apply(order,orderbooks,matcher,executor)?
     };
     let order_after_match=applied.order;
     let matches=applied.matches;
@@ -432,33 +422,33 @@ pub(crate) fn process_submit_order(
             // Trade는 Java DB에서 저장하므로 Rust에서는 DB 명령 전송하지 않음
             // trade_id는 Java DB에서 auto increment로 생성되므로 Rust에서 보내지 않음
             for match_result in &matches {
-                // 체결 후 잔고 조회 (executor_guard를 잡고 있는 동안)
+                // 워커가 소유한 확정 후 잔액을 읽는다. 별도 락은 없다.
                 let balance_snapshot = {
-                    let executor_guard = executor.lock();
+                    let executor_ref = &*executor;
                     
                     // 체결 후 잔고 조회 (단일 스레드이므로 안전)
                     use crate::domains::cex::engine::balance_cache::Balance;
-                    let buyer_base = executor_guard.balance_cache()
+                    let buyer_base = executor_ref.balance_cache()
                         .get_balance(match_result.buyer_id, &match_result.base_mint)
                         .cloned()
                         .unwrap_or_else(|| Balance::new());
                         
-                    let buyer_quote = executor_guard.balance_cache()
+                    let buyer_quote = executor_ref.balance_cache()
                         .get_balance(match_result.buyer_id, &match_result.quote_mint)
                         .cloned()
                         .unwrap_or_else(|| Balance::new());
                         
-                    let seller_base = executor_guard.balance_cache()
+                    let seller_base = executor_ref.balance_cache()
                         .get_balance(match_result.seller_id, &match_result.base_mint)
                         .cloned()
                         .unwrap_or_else(|| Balance::new());
                         
-                    let seller_quote = executor_guard.balance_cache()
+                    let seller_quote = executor_ref.balance_cache()
                         .get_balance(match_result.seller_id, &match_result.quote_mint)
                         .cloned()
                         .unwrap_or_else(|| Balance::new());
                     
-                    // executor_guard가 여기서 해제됨
+                    // executor_ref가 여기서 해제됨
                     
                     // 잔고 스냅샷 반환
                     (
@@ -539,33 +529,33 @@ pub(crate) fn process_submit_order(
         use chrono::Utc;
         
         for match_result in &matches {
-            // 체결 후 잔고 조회 (executor_guard를 잡고 있는 동안)
+            // 워커가 소유한 확정 후 잔액을 읽는다. 별도 락은 없다.
             let balance_snapshot = {
-                let executor_guard = executor.lock();
+                let executor_ref = &*executor;
                 
                 // 체결 후 잔고 조회 (단일 스레드이므로 안전)
                 use crate::domains::cex::engine::balance_cache::Balance;
-                let buyer_base = executor_guard.balance_cache()
+                let buyer_base = executor_ref.balance_cache()
                     .get_balance(match_result.buyer_id, &match_result.base_mint)
                     .cloned()
                     .unwrap_or_else(|| Balance::new());
                     
-                let buyer_quote = executor_guard.balance_cache()
+                let buyer_quote = executor_ref.balance_cache()
                     .get_balance(match_result.buyer_id, &match_result.quote_mint)
                     .cloned()
                     .unwrap_or_else(|| Balance::new());
                     
-                let seller_base = executor_guard.balance_cache()
+                let seller_base = executor_ref.balance_cache()
                     .get_balance(match_result.seller_id, &match_result.base_mint)
                     .cloned()
                     .unwrap_or_else(|| Balance::new());
                     
-                let seller_quote = executor_guard.balance_cache()
+                let seller_quote = executor_ref.balance_cache()
                     .get_balance(match_result.seller_id, &match_result.quote_mint)
                     .cloned()
                     .unwrap_or_else(|| Balance::new());
                 
-                // executor_guard가 여기서 해제됨
+                // executor_ref가 여기서 해제됨
                 
                 // 잔고 스냅샷 반환
                 (
@@ -710,13 +700,12 @@ fn handle_cancel_order(
     wal_tx: Option<&crossbeam::channel::Sender<WalEntry>>,
     db_tx: Option<&crossbeam::channel::Sender<super::db_commands::DbCommand>>,
     kafka_producer: Option<&Arc<KafkaProducer>>,
-    orderbooks: &Arc<RwLock<HashMap<TradingPair, OrderBook>>>,
-    executor: &Arc<Mutex<Executor>>,
-    db: Option<Database>,
+    orderbooks: &mut HashMap<TradingPair, OrderBook>,
+    executor: &mut Executor,
 ) {
     // 1. OrderBook에서 주문 찾기
-    let mut orderbooks_guard = orderbooks.write();
-    let orderbook = match orderbooks_guard.get_mut(&trading_pair) {
+    let books = orderbooks;
+    let orderbook = match books.get_mut(&trading_pair) {
         Some(ob) => ob,
         None => {
             let _ = response.send(Err(anyhow::anyhow!("OrderBook not found for trading pair")));
@@ -842,8 +831,8 @@ fn handle_cancel_order(
     
     // Executor로 잔고 잠금 해제
     {
-        let mut executor_guard = executor.lock();
-        if let Err(e) = executor_guard.unlock_balance_for_cancel(order_id, user_id, unlock_mint, unlock_amount) {
+        let executor_ref = &mut *executor;
+        if let Err(e) = executor_ref.unlock_balance_for_cancel(order_id, user_id, unlock_mint, unlock_amount) {
             let _ = response.send(Err(anyhow::anyhow!("Failed to unlock balance: {}", e)));
             return;
         }
@@ -896,11 +885,11 @@ fn handle_get_orderbook(
     trading_pair: TradingPair,
     depth: Option<usize>,
     response: tokio::sync::oneshot::Sender<Result<(Vec<OrderEntry>, Vec<OrderEntry>)>>,
-    orderbooks: &Arc<RwLock<HashMap<TradingPair, OrderBook>>>,
+    orderbooks: &mut HashMap<TradingPair, OrderBook>,
 ) {
     // 1. OrderBook 찾기
-    let orderbooks_guard = orderbooks.read();
-    let orderbook = match orderbooks_guard.get(&trading_pair) {
+    let books = orderbooks;
+    let orderbook = match books.get(&trading_pair) {
         Some(ob) => ob,
         None => {
             // OrderBook이 없으면 빈 목록 반환
@@ -954,9 +943,8 @@ fn handle_get_balance(
     user_id: u64,
     mint: String,
     response: tokio::sync::oneshot::Sender<Result<(rust_decimal::Decimal, rust_decimal::Decimal)>>,
-    executor: &Arc<Mutex<Executor>>,
+    executor: &mut Executor,
 ) {
-    let executor = executor.lock();
     let balance_cache = executor.balance_cache();
     
     match balance_cache.get_balance(user_id, &mint) {
@@ -977,9 +965,8 @@ fn handle_lock_balance(
     response: tokio::sync::oneshot::Sender<Result<()>>,
     wal_tx: Option<&crossbeam::channel::Sender<WalEntry>>,
     db_tx: Option<&crossbeam::channel::Sender<super::db_commands::DbCommand>>,
-    executor: &Arc<Mutex<Executor>>,
+    executor: &mut Executor,
 ) {
-    let mut executor = executor.lock();
     
     // 현재 Executor는 실행 캐시만 변경한다. 영속 결과·WAL 확정은 별도 후속 과제다.
     
@@ -1017,9 +1004,8 @@ fn handle_unlock_balance(
     response: tokio::sync::oneshot::Sender<Result<()>>,
     wal_tx: Option<&crossbeam::channel::Sender<WalEntry>>,
     db_tx: Option<&crossbeam::channel::Sender<super::db_commands::DbCommand>>,
-    executor: &Arc<Mutex<Executor>>,
+    executor: &mut Executor,
 ) {
-    let mut executor = executor.lock();
     
     // WAL 메시지 발행 - 주석 처리됨 (WAL 비활성화)
     // WAL 로그 쓰기 비활성화 (디스크 공간 부족 문제로 인해 임시 비활성화)
@@ -1098,12 +1084,12 @@ fn handle_update_balance(
     response: tokio::sync::oneshot::Sender<Result<()>>,
     _wal_tx: Option<&crossbeam::channel::Sender<WalEntry>>,
     _db_tx: Option<&crossbeam::channel::Sender<super::db_commands::DbCommand>>,
-    executor: &Arc<Mutex<Executor>>,
+    executor: &mut Executor,
 ) {
     // 1. BalanceCache에서 잔고 업데이트
     let (new_available, new_locked) = {
-        let mut executor_guard = executor.lock();
-        let balance_cache = executor_guard.balance_cache_mut();
+        let executor_ref = &mut *executor;
+        let balance_cache = executor_ref.balance_cache_mut();
         
         // available 업데이트 (delta 추가)
         balance_cache.add_available(user_id, &mint, available_delta);

@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 impl BalanceCache {
     /// 성공 시 양쪽 자산이 모두 바뀌고, Result 오류 시 행 생성까지 포함해 그대로다.
-    /// &mut self와 호출자의 Executor 락이 다른 작업의 중간 상태 관찰을 막는다.
+    /// 가변 대여 중에는 다른 명령을 처리하지 않아 중간 상태 관찰을 막는다.
     pub fn settle_trade(&mut self, trade: &MatchResult) -> Result<()> {
         ensure!(
             trade.buyer_id > 0 && trade.seller_id > 0,

@@ -4,8 +4,6 @@ use crate::domains::cex::engine::runtime::HighPerformanceEngine;
 use crate::domains::cex::services::OrderService;
 use crate::shared::database::Database;
 use sqlx::Executor;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
 async fn schema(pool: &PgPool) -> Result<()> {
     pool.execute("CREATE TABLE orders (id BIGINT PRIMARY KEY,user_id BIGINT,status TEXT,filled_amount NUMERIC DEFAULT 0)").await?;
@@ -36,10 +34,10 @@ fn request() -> CreateOrderRequest {
     .unwrap()
 }
 
-fn service(pool: PgPool) -> (OrderService, Arc<Mutex<HighPerformanceEngine>>) {
-    let engine = Arc::new(Mutex::new(HighPerformanceEngine::new_bench()));
+fn service(pool: PgPool) -> (OrderService, HighPerformanceEngine) {
+    let engine = HighPerformanceEngine::new_bench();
     (
-        OrderService::new(Database::noop(pool), engine.clone()),
+        OrderService::new(Database::noop(pool), engine.handle()),
         engine,
     )
 }
@@ -55,7 +53,7 @@ async fn receipt_is_durable_before_dispatch_and_duplicate_keeps_timestamp(
     assert!(first.created);
     assert!(!duplicate.created);
     assert_eq!(first.receipt.accepted_at, duplicate.receipt.accepted_at);
-    assert_eq!(engine.lock().await.test_queued_orders(), 1);
+    assert_eq!(engine.test_queued_orders(), 1);
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM engine_order_receipts")
         .fetch_one(&pool)
         .await?;
@@ -74,7 +72,7 @@ async fn concurrent_receipts_dispatch_exactly_one_command(pool: PgPool) -> Resul
         created += usize::from(result?.created);
     }
     assert_eq!(created, 1);
-    assert_eq!(engine.lock().await.test_queued_orders(), 1);
+    assert_eq!(engine.test_queued_orders(), 1);
     Ok(())
 }
 
@@ -162,7 +160,7 @@ async fn current_order_changes_do_not_change_existing_receipt(pool: PgPool) -> R
     pool.execute("UPDATE orders SET status='filled',filled_amount=2")
         .await?;
     assert!(!service.create_order(101, request()).await?.created);
-    assert_eq!(engine.lock().await.test_queued_orders(), 1);
+    assert_eq!(engine.test_queued_orders(), 1);
     Ok(())
 }
 
@@ -173,7 +171,7 @@ async fn new_service_and_executor_do_not_dispatch_existing_receipt(pool: PgPool)
     first.create_order(101, request()).await?;
     let (fresh, engine) = service(pool);
     assert!(!fresh.create_order(101, request()).await?.created);
-    assert_eq!(engine.lock().await.test_queued_orders(), 0);
+    assert_eq!(engine.test_queued_orders(), 0);
     Ok(())
 }
 
@@ -188,7 +186,7 @@ async fn commit_failure_does_not_dispatch_or_report_acceptance(pool: PgPool) -> 
     .await?;
     let (service, engine) = service(pool.clone());
     assert!(service.create_order(101, request()).await.is_err());
-    assert_eq!(engine.lock().await.test_queued_orders(), 0);
+    assert_eq!(engine.test_queued_orders(), 0);
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM engine_order_receipts")
         .fetch_one(&pool)
         .await?;
@@ -201,7 +199,8 @@ async fn closed_dispatch_channel_keeps_receipt_and_does_not_panic(pool: PgPool) 
     use crate::domains::cex::engine::Engine;
     schema(&pool).await?;
     let (service, engine) = service(pool.clone());
-    engine.lock().await.stop().await?;
+    let mut engine = engine;
+    engine.stop().await?;
     assert!(service.create_order(101, request()).await?.created);
     assert!(!service.create_order(101, request()).await?.created);
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM engine_order_receipts")
@@ -228,7 +227,7 @@ async fn market_buy_preserves_exact_budget_and_null_amount(pool: PgPool) -> Resu
             .await?;
     assert!(amount.is_none());
     assert_eq!(budget, "123.250000001".parse::<Decimal>()?);
-    assert_eq!(engine.lock().await.test_queued_orders(), 1);
+    assert_eq!(engine.test_queued_orders(), 1);
     Ok(())
 }
 
@@ -244,7 +243,7 @@ async fn invalid_identifiers_and_fields_never_dispatch(pool: PgPool) -> Result<(
     let mut invalid = request();
     invalid.amount = Some(Decimal::ZERO);
     assert!(service.create_order(101, invalid).await.is_err());
-    assert_eq!(engine.lock().await.test_queued_orders(), 0);
+    assert_eq!(engine.test_queued_orders(), 0);
     Ok(())
 }
 
@@ -266,11 +265,11 @@ fn router(pool: PgPool) -> axum::Router {
     };
     use crate::shared::services::AppState;
     let db = Database::noop(pool);
-    let engine = Arc::new(Mutex::new(HighPerformanceEngine::new_bench()));
+    let engine = HighPerformanceEngine::new_bench();
     crate::routes::create_router().with_state(AppState {
         db: db.clone(),
-        engine: engine.clone(),
-        cex_state: CexState::new(db.clone(), engine),
+        engine: engine.handle(),
+        cex_state: CexState::new(db.clone(), engine.handle()),
         wallet_state: WalletState::new(db.clone()).unwrap(),
         swap_state: SwapState::new(db),
     })

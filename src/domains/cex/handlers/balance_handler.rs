@@ -43,7 +43,7 @@ pub async fn sync_balance(
     Json(request): Json<SyncBalanceRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<serde_json::Value>)> {
     // 엔진에 잔고 업데이트 요청
-    let engine = app_state.engine.lock().await;
+    let engine = &app_state.engine;
     
     engine.update_balance(
         request.user_id,

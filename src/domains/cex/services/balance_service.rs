@@ -1,7 +1,6 @@
-use std::sync::Arc;
 use crate::shared::database::{Database, UserBalanceRepository};
 use crate::domains::cex::models::balance::{UserBalance, UserBalanceCreate};
-use crate::domains::cex::engine::{Engine, runtime::HighPerformanceEngine};
+use crate::domains::cex::engine::{Engine, runtime::EngineHandle};
 use anyhow::{Context, Result};
 use rust_decimal::Decimal;
 use chrono::Utc;
@@ -20,7 +19,7 @@ use chrono::Utc;
 #[derive(Clone)]
 pub struct BalanceService {
     db: Database,
-    engine: Arc<tokio::sync::Mutex<HighPerformanceEngine>>,
+    engine: EngineHandle,
 }
 
 impl BalanceService {
@@ -33,7 +32,7 @@ impl BalanceService {
     /// 
     /// # Returns
     /// BalanceService 인스턴스
-    pub fn new(db: Database, engine: Arc<tokio::sync::Mutex<HighPerformanceEngine>>) -> Self {
+    pub fn new(db: Database, engine: EngineHandle) -> Self {
         Self { db, engine }
     }
 

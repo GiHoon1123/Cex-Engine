@@ -34,7 +34,7 @@ async fn test_market_order_cancellation_rejected() {
     };
     
     // 주문 제출
-    let submit_result = engine.submit_order(buy_order).await;
+    let submit_result = engine.handle().submit_order(buy_order).await;
     assert!(submit_result.is_ok(), "Failed to submit market order: {:?}", submit_result.err());
     
     // 시장가 주문 취소 시도 (실패해야 함)
@@ -70,7 +70,7 @@ async fn test_cancel_during_partial_fill() {
     };
     
     // 주문 제출
-    let submit_result = engine.submit_order(buy_order).await;
+    let submit_result = engine.handle().submit_order(buy_order).await;
     assert!(submit_result.is_ok(), "Failed to submit order: {:?}", submit_result.err());
     
     // 잠시 대기 (주문 처리 완료 대기)
@@ -81,7 +81,7 @@ async fn test_cancel_during_partial_fill() {
         base_mint: "SOL".to_string(),
         quote_mint: "USDT".to_string(),
     };
-    let (buy_orders, _) = engine.get_orderbook(&trading_pair, None).await
+    let (buy_orders, _) = engine.handle().get_orderbook(&trading_pair, None).await
         .expect("Failed to get orderbook");
     
     // 주문이 오더북에 있는지 확인
@@ -89,7 +89,7 @@ async fn test_cancel_during_partial_fill() {
     assert!(order_found, "Order 80002 should be in orderbook at price 95 USDT");
     
     // 주문 취소
-    let cancel_result = engine.cancel_order(80002, TEST_USER_ID, &trading_pair).await;
+    let cancel_result = engine.handle().cancel_order(80002, TEST_USER_ID, &trading_pair).await;
     assert!(cancel_result.is_ok(), "Failed to cancel order: {:?}", cancel_result.err());
     
     // 잔고 확인 (체결된 부분은 락 유지, 취소된 부분은 언락)
@@ -141,7 +141,7 @@ async fn test_deadlock_prevention() {
     
     // 주문 제출
     for order in orders {
-        let result = engine.submit_order(order).await;
+        let result = engine.handle().submit_order(order).await;
         assert!(result.is_ok(), "Failed to submit order: {:?}", result.err());
     }
     
@@ -153,7 +153,7 @@ async fn test_deadlock_prevention() {
         base_mint: "SOL".to_string(),
         quote_mint: "USDT".to_string(),
     };
-    let (buy_orders, sell_orders) = engine.get_orderbook(&trading_pair, None).await
+    let (buy_orders, sell_orders) = engine.handle().get_orderbook(&trading_pair, None).await
         .expect("Failed to get orderbook");
     
     // 오더북이 정상적으로 조회되면 락이 해제된 것

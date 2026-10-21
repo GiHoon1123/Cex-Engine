@@ -22,7 +22,7 @@ async fn test_get_orderbook() {
     };
     
     // 오더북 조회
-    let (buy_orders, sell_orders) = engine.get_orderbook(&trading_pair, None).await
+    let (buy_orders, sell_orders) = engine.handle().get_orderbook(&trading_pair, None).await
         .expect("Failed to get orderbook");
     
     // 오더북이 비어있지 않아야 함 (setup_orderbook에서 채워놓음)
@@ -45,9 +45,9 @@ async fn test_best_bid_ask() {
     };
     
     // best_bid, best_ask 조회
-    let best_bid = engine.get_best_bid(&trading_pair).await
+    let best_bid = engine.handle().get_best_bid(&trading_pair).await
         .expect("Failed to get best bid");
-    let best_ask = engine.get_best_ask(&trading_pair).await
+    let best_ask = engine.handle().get_best_ask(&trading_pair).await
         .expect("Failed to get best ask");
     
     // setup_orderbook에서 매수는 90~100, 매도는 101~110으로 설정했음
@@ -80,9 +80,9 @@ async fn test_spread_calculation() {
     };
     
     // best_bid, best_ask 조회
-    let best_bid = engine.get_best_bid(&trading_pair).await
+    let best_bid = engine.handle().get_best_bid(&trading_pair).await
         .expect("Failed to get best bid");
-    let best_ask = engine.get_best_ask(&trading_pair).await
+    let best_ask = engine.handle().get_best_ask(&trading_pair).await
         .expect("Failed to get best ask");
     
     // 스프레드 = best_ask - best_bid
@@ -121,7 +121,7 @@ async fn test_orderbook_update_after_partial_fill() {
     };
     
     // 주문 제출
-    let submit_result = engine.submit_order(buy_order).await;
+    let submit_result = engine.handle().submit_order(buy_order).await;
     assert!(submit_result.is_ok(), "Failed to submit order: {:?}", submit_result.err());
     
     // 잠시 대기 (주문 처리 완료 대기)
@@ -132,7 +132,7 @@ async fn test_orderbook_update_after_partial_fill() {
         base_mint: "SOL".to_string(),
         quote_mint: "USDT".to_string(),
     };
-    let (buy_orders, sell_orders) = engine.get_orderbook(&trading_pair, None).await
+    let (buy_orders, sell_orders) = engine.handle().get_orderbook(&trading_pair, None).await
         .expect("Failed to get orderbook after partial fill");
     
     // 오더북이 올바르게 업데이트되었는지 확인
@@ -154,7 +154,7 @@ async fn test_orderbook_sorting() {
     };
     
     // 오더북 조회
-    let (buy_orders, sell_orders) = engine.get_orderbook(&trading_pair, None).await
+    let (buy_orders, sell_orders) = engine.handle().get_orderbook(&trading_pair, None).await
         .expect("Failed to get orderbook");
     
     // 매수 주문은 가격 내림차순 (높은 가격 먼저)

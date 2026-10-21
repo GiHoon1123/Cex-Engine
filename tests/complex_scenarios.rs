@@ -39,7 +39,7 @@ async fn test_multiple_limit_orders_one_market_order() {
     };
     
     // 주문 제출
-    let submit_result = engine.submit_order(buy_order).await;
+    let submit_result = engine.handle().submit_order(buy_order).await;
     assert!(submit_result.is_ok(), "Failed to submit market buy order: {:?}", submit_result.err());
     
     // 가격 우선순위로 체결되었는지 확인
@@ -74,7 +74,7 @@ async fn test_orderbook_exhaustion() {
     };
     
     // 주문 제출
-    let submit_result = engine.submit_order(buy_order).await;
+    let submit_result = engine.handle().submit_order(buy_order).await;
     // 부분 체결 후 실패해야 함 (오더북 소진)
     
     // 오더북이 비었는지 확인
@@ -82,7 +82,7 @@ async fn test_orderbook_exhaustion() {
         base_mint: "SOL".to_string(),
         quote_mint: "USDT".to_string(),
     };
-    let (buy_orders, sell_orders) = engine.get_orderbook(&trading_pair, None).await
+    let (buy_orders, sell_orders) = engine.handle().get_orderbook(&trading_pair, None).await
         .expect("Failed to get orderbook");
     
     // 매도 주문이 모두 소진되었는지 확인
@@ -141,7 +141,7 @@ async fn test_mixed_order_sequence() {
     
     // 주문 제출
     for order in orders {
-        let result = engine.submit_order(order).await;
+        let result = engine.handle().submit_order(order).await;
         assert!(result.is_ok(), "Failed to submit order: {:?}", result.err());
     }
     
@@ -149,11 +149,11 @@ async fn test_mixed_order_sequence() {
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     
     // 주문 취소
-    let cancel_result = engine.cancel_order(60003, TEST_USER_ID, &trading_pair).await;
+    let cancel_result = engine.handle().cancel_order(60003, TEST_USER_ID, &trading_pair).await;
     assert!(cancel_result.is_ok(), "Failed to cancel order: {:?}", cancel_result.err());
     
     // 오더북 조회 (정합성 확인)
-    let (buy_orders, sell_orders) = engine.get_orderbook(&trading_pair, None).await
+    let (buy_orders, sell_orders) = engine.handle().get_orderbook(&trading_pair, None).await
         .expect("Failed to get orderbook");
     
     // 오더북이 올바르게 유지되었는지 확인

@@ -34,7 +34,7 @@ async fn test_cancel_unfilled_order() {
     };
     
     // 주문 제출
-    let submit_result = engine.submit_order(buy_order).await;
+    let submit_result = engine.handle().submit_order(buy_order).await;
     assert!(submit_result.is_ok(), "Failed to submit order: {:?}", submit_result.err());
     
     // 주문 취소
@@ -42,11 +42,11 @@ async fn test_cancel_unfilled_order() {
         base_mint: "SOL".to_string(),
         quote_mint: "USDT".to_string(),
     };
-    let cancel_result = engine.cancel_order(30001, TEST_USER_ID, &trading_pair).await;
+    let cancel_result = engine.handle().cancel_order(30001, TEST_USER_ID, &trading_pair).await;
     assert!(cancel_result.is_ok(), "Failed to cancel order: {:?}", cancel_result.err());
     
     // 잔고 언락 확인
-    let (usdt_available, usdt_locked) = engine.get_balance(TEST_USER_ID, "USDT").await
+    let (usdt_available, usdt_locked) = engine.handle().get_balance(TEST_USER_ID, "USDT").await
         .expect("Failed to get USDT balance");
     // locked가 0이어야 함 (언락됨)
     assert_eq!(usdt_locked, Decimal::ZERO, "USDT should be unlocked after cancellation");
@@ -82,7 +82,7 @@ async fn test_cancel_partially_filled_order() {
     };
     
     // 주문 제출
-    let submit_result = engine.submit_order(buy_order).await;
+    let submit_result = engine.handle().submit_order(buy_order).await;
     assert!(submit_result.is_ok(), "Failed to submit order: {:?}", submit_result.err());
     
     // 잠시 대기 (주문 처리 완료 대기)
@@ -93,7 +93,7 @@ async fn test_cancel_partially_filled_order() {
         base_mint: "SOL".to_string(),
         quote_mint: "USDT".to_string(),
     };
-    let (buy_orders, _) = engine.get_orderbook(&trading_pair, None).await
+    let (buy_orders, _) = engine.handle().get_orderbook(&trading_pair, None).await
         .expect("Failed to get orderbook");
     
     // 주문이 오더북에 있는지 확인 (105 USDT 가격에 주문이 있어야 함)
@@ -112,7 +112,7 @@ async fn test_cancel_partially_filled_order() {
     }
     
     // 주문 취소 (미체결 주문 취소)
-    let cancel_result = engine.cancel_order(30002, TEST_USER_ID, &trading_pair).await;
+    let cancel_result = engine.handle().cancel_order(30002, TEST_USER_ID, &trading_pair).await;
     assert!(cancel_result.is_ok(), "Failed to cancel order: {:?}", cancel_result.err());
     
     // 잔고 확인 (부분 체결된 부분은 락 유지, 취소된 부분은 언락)
@@ -146,7 +146,7 @@ async fn test_cancel_twice_fails() {
     };
     
     // 주문 제출
-    let submit_result = engine.submit_order(buy_order).await;
+    let submit_result = engine.handle().submit_order(buy_order).await;
     assert!(submit_result.is_ok(), "Failed to submit order: {:?}", submit_result.err());
     
     // 첫 번째 취소 (성공해야 함)
@@ -154,11 +154,11 @@ async fn test_cancel_twice_fails() {
         base_mint: "SOL".to_string(),
         quote_mint: "USDT".to_string(),
     };
-    let cancel_result1 = engine.cancel_order(30003, TEST_USER_ID, &trading_pair).await;
+    let cancel_result1 = engine.handle().cancel_order(30003, TEST_USER_ID, &trading_pair).await;
     assert!(cancel_result1.is_ok(), "First cancellation should succeed: {:?}", cancel_result1.err());
     
     // 두 번째 취소 (실패해야 함)
-    let cancel_result2 = engine.cancel_order(30003, TEST_USER_ID, &trading_pair).await;
+    let cancel_result2 = engine.handle().cancel_order(30003, TEST_USER_ID, &trading_pair).await;
     assert!(cancel_result2.is_err(), "Second cancellation should fail");
     
     teardown_test(&mut engine, &db).await;
@@ -189,7 +189,7 @@ async fn test_orderbook_consistency_after_cancel() {
     };
     
     // 주문 제출
-    let submit_result = engine.submit_order(buy_order).await;
+    let submit_result = engine.handle().submit_order(buy_order).await;
     assert!(submit_result.is_ok(), "Failed to submit order: {:?}", submit_result.err());
     
     // 오더북 조회 (주문이 있는지 확인)
@@ -197,15 +197,15 @@ async fn test_orderbook_consistency_after_cancel() {
         base_mint: "SOL".to_string(),
         quote_mint: "USDT".to_string(),
     };
-    let (buy_orders, sell_orders) = engine.get_orderbook(&trading_pair, None).await
+    let (buy_orders, sell_orders) = engine.handle().get_orderbook(&trading_pair, None).await
         .expect("Failed to get orderbook");
     
     // 주문 취소
-    let cancel_result = engine.cancel_order(30004, TEST_USER_ID, &trading_pair).await;
+    let cancel_result = engine.handle().cancel_order(30004, TEST_USER_ID, &trading_pair).await;
     assert!(cancel_result.is_ok(), "Failed to cancel order: {:?}", cancel_result.err());
     
     // 오더북 재조회 (주문이 제거되었는지 확인)
-    let (buy_orders_after, sell_orders_after) = engine.get_orderbook(&trading_pair, None).await
+    let (buy_orders_after, sell_orders_after) = engine.handle().get_orderbook(&trading_pair, None).await
         .expect("Failed to get orderbook after cancel");
     
     // 오더북 정합성 확인

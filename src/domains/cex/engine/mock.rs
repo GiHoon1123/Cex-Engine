@@ -94,14 +94,6 @@ impl Engine for MockEngine {
         Ok(())
     }
 
-    async fn start(&mut self) -> Result<()> {
-        // TODO: 실제 엔진 시작 로직 구현 필요
-        Ok(())
-    }
 
-    async fn stop(&mut self) -> Result<()> {
-        // TODO: 실제 엔진 정지 로직 구현 필요
-        Ok(())
-    }
 }
 

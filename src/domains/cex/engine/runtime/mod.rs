@@ -14,6 +14,7 @@ pub mod config;
 pub mod commands;
 pub mod balance_commands;
 pub mod engine;
+pub mod handle;
 pub mod threads;
 pub mod db_commands;
 mod startup;
@@ -22,6 +23,7 @@ mod submission;
 pub mod bench_engine;
 
 pub use engine::HighPerformanceEngine;
+pub use handle::EngineHandle;
 pub use config::CoreConfig;
 pub use commands::OrderCommand;
 pub use balance_commands::BalanceCommand;

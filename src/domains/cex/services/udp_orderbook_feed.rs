@@ -26,7 +26,7 @@ use tokio::net::UdpSocket;
 use tokio::time::{interval, Duration};
 use rust_decimal::Decimal;
 use serde::{Serialize, Deserialize};
-use crate::domains::cex::engine::runtime::HighPerformanceEngine;
+use crate::domains::cex::engine::runtime::EngineHandle;
 use crate::domains::cex::engine::Engine;
 use crate::domains::cex::engine::types::TradingPair;
 
@@ -69,7 +69,7 @@ impl Default for UdpOrderbookFeedConfig {
 pub struct UdpOrderbookFeed {
     /// 엔진 참조 (오더북 조회용)
     /// Engine reference for orderbook queries
-    engine: Arc<tokio::sync::Mutex<HighPerformanceEngine>>,
+    engine: EngineHandle,
     
     /// UDP 소켓 (Arc로 감싸서 공유)
     /// UDP socket for multicast transmission (wrapped in Arc for sharing)
@@ -105,7 +105,7 @@ impl UdpOrderbookFeed {
     /// let feed = UdpOrderbookFeed::new(engine, None).await?;
     /// ```
     pub async fn new(
-        engine: Arc<tokio::sync::Mutex<HighPerformanceEngine>>,
+        engine: EngineHandle,
         config: Option<UdpOrderbookFeedConfig>,
     ) -> Result<Self> {
         let config = config.unwrap_or_default();
@@ -152,7 +152,7 @@ impl UdpOrderbookFeed {
     /// feed.start().await?;
     /// ```
     pub fn start(&self) {
-        let engine = Arc::clone(&self.engine);
+        let engine = self.engine.clone();
         // UDP 소켓은 이미 Arc로 감싸져 있음
         let socket = Arc::clone(&self.socket);
         let multicast_addr = self.multicast_addr;
@@ -219,7 +219,7 @@ impl UdpOrderbookFeed {
     /// 3. 바이너리 직렬화
     /// 4. UDP 멀티캐스트로 전송
     async fn send_orderbook_for_all_pairs(
-        engine: &Arc<tokio::sync::Mutex<HighPerformanceEngine>>,
+        engine: &EngineHandle,
         socket: &Arc<UdpSocket>,
         multicast_addr: &SocketAddr,
         depth: usize,
@@ -229,12 +229,9 @@ impl UdpOrderbookFeed {
         let trading_pair = TradingPair::new("SOL".to_string(), "USDT".to_string());
         
         // 엔진에서 오더북 조회
-        // Query orderbook from engine
-        // HighPerformanceEngine은 Engine trait을 구현하므로 직접 호출 가능
+        // 명령 핸들로 조회한다. 응답을 기다리는 동안 다른 요청의 진입을 잠그지 않는다.
         let (buy_entries, sell_entries) = {
-            let engine_guard = engine.lock().await;
-            // Engine trait을 import했으므로 trait 메서드를 직접 호출 가능
-            Engine::get_orderbook(&*engine_guard, &trading_pair, Some(depth))
+            Engine::get_orderbook(engine, &trading_pair, Some(depth))
                 .await
                 .context("Failed to get orderbook from engine")?
         };

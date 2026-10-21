@@ -9,8 +9,6 @@ use axum::{
     Router,
 };
 use sqlx::postgres::PgPoolOptions;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 use tower::ServiceExt;
 
 /// 외부 서버 없이 실제 HTTP 라우터를 구성한다.
@@ -24,7 +22,7 @@ fn app() -> Router {
         .connect_lazy("postgresql://unused:unused@127.0.0.1:1/unused")
         .expect("valid lazy pool configuration");
     let db = Database::noop(pool);
-    let engine = Arc::new(Mutex::new(HighPerformanceEngine::new_bench()));
+    let engine = HighPerformanceEngine::new_bench().handle();
     let state = AppState {
         db: db.clone(),
         wallet_state: WalletState::new(db.clone()).expect("wallet client configuration"),

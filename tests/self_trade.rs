@@ -34,7 +34,7 @@ async fn test_self_trade_prevention_limit_orders() {
     };
     
     // 매도 주문 제출
-    let submit_result1 = engine.submit_order(sell_order).await;
+    let submit_result1 = engine.handle().submit_order(sell_order).await;
     assert!(submit_result1.is_ok(), "Failed to submit sell order: {:?}", submit_result1.err());
     
     // 같은 유저가 105 USDT로 1 SOL 매수 주문
@@ -55,7 +55,7 @@ async fn test_self_trade_prevention_limit_orders() {
     };
     
     // 매수 주문 제출
-    let submit_result2 = engine.submit_order(buy_order).await;
+    let submit_result2 = engine.handle().submit_order(buy_order).await;
     assert!(submit_result2.is_ok(), "Failed to submit buy order: {:?}", submit_result2.err());
     
     // 잠시 대기 (주문 처리 완료 대기)
@@ -66,7 +66,7 @@ async fn test_self_trade_prevention_limit_orders() {
         base_mint: "SOL".to_string(),
         quote_mint: "USDT".to_string(),
     };
-    let (buy_orders, sell_orders) = engine.get_orderbook(&trading_pair, None).await
+    let (buy_orders, sell_orders) = engine.handle().get_orderbook(&trading_pair, None).await
         .expect("Failed to get orderbook");
     
     // 오더북에 두 주문이 모두 있는지 확인
@@ -100,7 +100,7 @@ async fn test_market_order_skips_own_limit_order() {
     };
     
     // 매도 주문 제출
-    let submit_result1 = engine.submit_order(sell_order).await;
+    let submit_result1 = engine.handle().submit_order(sell_order).await;
     assert!(submit_result1.is_ok(), "Failed to submit sell order: {:?}", submit_result1.err());
     
     // 같은 유저가 시장가로 1 SOL 매수
@@ -121,7 +121,7 @@ async fn test_market_order_skips_own_limit_order() {
     };
     
     // 매수 주문 제출
-    let submit_result2 = engine.submit_order(buy_order).await;
+    let submit_result2 = engine.handle().submit_order(buy_order).await;
     // 시장가 주문은 자기 주문을 건너뛰고 다른 유저의 주문과 매칭되어야 함
     // 또는 매칭할 주문이 없으면 실패해야 함
     
@@ -156,7 +156,7 @@ async fn test_market_order_fails_when_only_own_orders() {
     };
     
     // 매도 주문 제출
-    let submit_result1 = engine.submit_order(sell_order).await;
+    let submit_result1 = engine.handle().submit_order(sell_order).await;
     assert!(submit_result1.is_ok(), "Failed to submit sell order: {:?}", submit_result1.err());
     
     // 같은 유저가 시장가로 매수 시도
@@ -177,7 +177,7 @@ async fn test_market_order_fails_when_only_own_orders() {
     };
     
     // 매수 주문 제출 (실패해야 함 - 본인 주문만 있음)
-    let submit_result2 = engine.submit_order(buy_order).await;
+    let submit_result2 = engine.handle().submit_order(buy_order).await;
     // 실제로는 에러가 반환되어야 하고, 잔고가 언락되어야 함
     
     teardown_test(&mut engine, &db).await;

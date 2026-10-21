@@ -17,7 +17,7 @@ async fn test_insufficient_balance_rejects_order() {
     let (mut engine, db) = setup_test().await;
     
     // TEST_USER_ID (1번)의 USDT 잔고 확인
-    let (usdt_available, _) = engine.get_balance(TEST_USER_ID, "USDT").await
+    let (usdt_available, _) = engine.handle().get_balance(TEST_USER_ID, "USDT").await
         .expect("Failed to get USDT balance");
     
     // 잔고보다 훨씬 큰 금액으로 매수 주문 시도
@@ -38,11 +38,11 @@ async fn test_insufficient_balance_rejects_order() {
     };
     
     // 주문 제출 (실패해야 함)
-    let submit_result = engine.submit_order(buy_order).await;
+    let submit_result = engine.handle().submit_order(buy_order).await;
     assert!(submit_result.is_err(), "Order should fail due to insufficient balance");
     
     // 잔고가 락되지 않았는지 확인
-    let (usdt_available_after, usdt_locked_after) = engine.get_balance(TEST_USER_ID, "USDT").await
+    let (usdt_available_after, usdt_locked_after) = engine.handle().get_balance(TEST_USER_ID, "USDT").await
         .expect("Failed to get USDT balance after failed order");
     assert_eq!(usdt_available_after, usdt_available, "Available balance should not change");
     assert_eq!(usdt_locked_after, Decimal::ZERO, "Locked balance should remain 0");
@@ -75,7 +75,7 @@ async fn test_invalid_price_rejects_order() {
     };
     
     // 주문 제출 (실패해야 함)
-    let submit_result = engine.submit_order(buy_order_zero).await;
+    let submit_result = engine.handle().submit_order(buy_order_zero).await;
     // 실제로는 validation이 엔진 내부에서 이루어지므로, 여기서는 테스트만 작성
     
     teardown_test(&mut engine, &db).await;
@@ -106,7 +106,7 @@ async fn test_invalid_amount_rejects_order() {
     };
     
     // 주문 제출 (실패해야 함)
-    let submit_result = engine.submit_order(sell_order_zero).await;
+    let submit_result = engine.handle().submit_order(sell_order_zero).await;
     // 실제로는 validation이 엔진 내부에서 이루어지므로, 여기서는 테스트만 작성
     
     teardown_test(&mut engine, &db).await;
@@ -137,7 +137,7 @@ async fn test_market_order_zero_amount_fails() {
     };
     
     // 주문 제출 (실패해야 함)
-    let submit_result = engine.submit_order(sell_order).await;
+    let submit_result = engine.handle().submit_order(sell_order).await;
     // 실제로는 validation이 엔진 내부에서 이루어지므로, 여기서는 테스트만 작성
     
     teardown_test(&mut engine, &db).await;
@@ -156,7 +156,7 @@ async fn test_cancel_nonexistent_order_fails() {
     };
     
     // 존재하지 않는 주문 ID로 취소 시도
-    let cancel_result = engine.cancel_order(99999, TEST_USER_ID, &trading_pair).await;
+    let cancel_result = engine.handle().cancel_order(99999, TEST_USER_ID, &trading_pair).await;
     assert!(cancel_result.is_err(), "Cancelling nonexistent order should fail");
     
     teardown_test(&mut engine, &db).await;

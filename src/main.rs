@@ -121,21 +121,12 @@ async fn main() {
     //     .expect("Failed to initialize database");
     eprintln!("[Main] Skipping database migrations (test mode)");
 
-    // AppState 생성 (모든 Service 초기화)
-    let mut app_state = AppState::new(db.clone())
+    // 생명주기 제어 객체는 main에 남긴다. 검증 후 거래 상태를 워커로 이동하고,
+    // HTTP·UDP에는 복제 가능한 송신 핸들만 주입한다.
+    let mut engine = crate::domains::cex::engine::runtime::HighPerformanceEngine::new(db.clone());
+    engine.start().await.expect("Failed to start engine");
+    let mut app_state = AppState::new(db.clone(), engine.handle())
         .expect("Failed to initialize AppState");
-    
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 엔진 시작 (주문 처리에 필요)
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    eprintln!("[Main] Starting engine...");
-    {
-        let mut engine_guard = app_state.engine.lock().await;
-        engine_guard.start().await
-            .expect("Failed to start engine");
-    }
-    eprintln!("[Main] Engine started successfully");
-    
 
     // CORS 설정
     // 개발 환경: localhost 허용, 프로덕션: 모든 origin 허용 (또는 특정 도메인만)
