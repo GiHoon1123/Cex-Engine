@@ -330,7 +330,9 @@ async fn acceptance_forces_synchronous_commit_even_if_session_default_is_off(
 ) -> Result<()> {
     schema(&pool).await?;
     pool.execute("CREATE FUNCTION check_sync() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
-        IF current_setting('synchronous_commit') <> 'on' THEN RAISE EXCEPTION 'asynchronous receipt'; END IF;
+        IF current_setting('synchronous_commit') <> 'on' OR
+           current_setting('transaction_isolation') <> 'read committed'
+        THEN RAISE EXCEPTION 'unexpected receipt transaction settings'; END IF;
         RETURN NEW; END $$;
         CREATE TRIGGER check_sync BEFORE INSERT ON engine_order_receipts FOR EACH ROW EXECUTE FUNCTION check_sync()").await?;
     let asynchronous = sqlx::postgres::PgPoolOptions::new()
@@ -338,7 +340,10 @@ async fn acceptance_forces_synchronous_commit_even_if_session_default_is_off(
         .after_connect(|connection, _| {
             Box::pin(async move {
                 sqlx::query("SET synchronous_commit=off")
-                    .execute(connection)
+                .execute(&mut *connection)
+                .await?;
+            sqlx::query("SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+                .execute(connection)
                     .await?;
                 Ok(())
             })
@@ -349,6 +354,9 @@ async fn acceptance_forces_synchronous_commit_even_if_session_default_is_off(
         .fetch_one(&asynchronous)
         .await?;
     assert_eq!(setting, "off");
+    let isolation: String = sqlx::query_scalar("SHOW default_transaction_isolation")
+        .fetch_one(&asynchronous).await?;
+    assert_eq!(isolation,"repeatable read");
     assert!(accept(&asynchronous, &request()).await?.created);
     asynchronous.close().await;
     Ok(())

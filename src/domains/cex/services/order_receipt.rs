@@ -85,6 +85,9 @@ pub async fn accept(pool: &PgPool, request: &CreateOrderRequest) -> Result<Accep
         .filter(|id| *id > 0)
         .ok_or(ReceiptError::Invalid)?;
     let mut transaction = pool.begin().await.context("Begin engine acceptance")?;
+    // 충돌 뒤 새 SELECT에서 승자의 커밋을 읽는 계약을 세션 기본값에 맡기지 않는다.
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+        .execute(&mut *transaction).await?;
     // 비동기 커밋 설정에서는 응답 뒤 DB 프로세스 장애로 기록을 잃을 수 있다.
     // 이 접수 트랜잭션은 WAL 로컬 디스크 반영을 기다린다. 복제·백업 보장은 별도다.
     sqlx::query("SET LOCAL synchronous_commit = on")
