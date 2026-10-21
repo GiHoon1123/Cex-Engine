@@ -32,7 +32,7 @@ pub(super) enum OutputBatch {
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub(super) struct TradeOutput {
-    trade: MatchResult,
+    pub(super) trade: MatchResult,
     balances: [Decimal; 8],
 }
 
@@ -165,11 +165,21 @@ pub(super) fn run_store(
     closed: Arc<AtomicBool>,
     ready: tokio::sync::oneshot::Sender<std::result::Result<(), String>>,
     mut send: impl FnMut(&OutputBatch, &Position<'_>) -> std::result::Result<(), DeliveryError>,
+    mut send_market: impl FnMut(&super::market::MarketSnapshot) -> Result<()>,
 ) -> Result<()> {
     let _close = CloseOnExit(closed);
     let startup_end = progress.durable.load(Ordering::Acquire);
     let mut ready = Some(ready);
     let mut cursor = store.delivered()?;
+    let mut market = super::market::Projection::default();
+    // 외부 공개용 집계는 자체 저널에서 복원한다. 코어의 실행 상태를 읽지 않는다.
+    // 기존 커서까지의 최신 스냅샷을 재발행해 새 플랫폼도 호가 기준점을 얻는다.
+    for sequence in 1..=cursor {
+        market.apply(&store.read(sequence)?, &engine_id)?;
+    }
+    for snapshot in market.latest.values() {
+        send_market(snapshot)?;
+    }
     loop {
         if cursor >= startup_end {
             if let Some(ready) = ready.take() {
@@ -199,21 +209,30 @@ pub(super) fn run_store(
                         error.reason
                     );
                 }
-                match batch {
-                    OutputBatch::Submitted { order_id, trades } => eprintln!(
-                        "output_completed order_id={} trades={}",
-                        order_id,
-                        trades.len()
-                    ),
-                    OutputBatch::Rejected { order_id, reason } => {
-                        eprintln!("output_rejected order_id={} reason={}", order_id, reason)
-                    }
-                    _ => {}
+            }
+            if let Some(snapshot) = market.apply(&record, &engine_id)? {
+                if let Err(error) = send_market(&snapshot) {
+                    eprintln!(
+                        "market_delivery_failed sequence={} reason={error:#}",
+                        record.sequence
+                    );
+                    return Err(error);
                 }
             }
-            // Kafka 확인 후에만 커서를 저장한다. 불확실한 전달은 성공으로
+            // 금융 결과와 공개 시세 모두 Kafka 확인 후에만 커서를 저장한다. 불확실한 전달은 성공으로
             // 건너뛰지 않고 재시작에서 동일 식별자로 다시 보낸다.
             store.mark_delivered(record.sequence)?;
+            if let super::journal::Outcome::Applied(Some(OutputBatch::Submitted {
+                order_id,
+                trades,
+            })) = &record.outcome
+            {
+                eprintln!(
+                    "output_completed order_id={} trades={}",
+                    order_id,
+                    trades.len()
+                );
+            }
             cursor = record.sequence;
             progress.delivered.store(cursor, Ordering::Release);
             continue;
@@ -248,6 +267,7 @@ pub(super) fn spawn(
             closed,
             sender,
             |batch, position| deliver(&producer, batch, position, &runtime),
+            |snapshot| runtime.block_on(producer.publish_market_snapshot(snapshot)),
         )
     });
     Ok((worker, receiver))

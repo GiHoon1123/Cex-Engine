@@ -3,6 +3,7 @@
 Docker postgres:16, Java 21, 두 프로젝트의 빌드 결과가 필요하다.
 기존 서비스·DB·Kafka에 접근하지 않고 이 실행이 생성한 컨테이너·프로세스만 정리한다.
 """
+from isolated_kafka import IsolatedKafka
 import base64
 import hashlib
 import hmac
@@ -28,6 +29,7 @@ DOCKER = shutil.which("docker") or "/usr/local/bin/docker"
 container = "cex-receipt-check-" + uuid4().hex[:12]
 processes = []
 proxy = None
+kafka = IsolatedKafka("cex-receipt-broker")
 evidence = {"container": container, "checks": []}
 secret = secrets.token_hex(32)
 
@@ -97,6 +99,7 @@ def jwt():
 
 try:
     ARTIFACTS.mkdir(exist_ok=True)
+    kafka.start()
     subprocess.run([DOCKER, "run", "--detach", "--rm", "--name", container,
                     "-e", "POSTGRES_USER=root", "-e", "POSTGRES_PASSWORD=1234", "-e", "POSTGRES_DB=cex",
                     "-p", "127.0.0.1::5432", "--tmpfs", "/var/lib/postgresql/data", "postgres:16"],
@@ -150,7 +153,7 @@ try:
     platform, platform_log = start([str(java), "-jar", str(ROOT / "Cex-Platform-Service/build/libs/cex-0.0.1-SNAPSHOT.jar"),
         f"--spring.datasource.url=jdbc:postgresql://{database_address}/cex", f"--server.port={platform_port}",
         "--server.address=127.0.0.1", f"--jwt.secret={secret}", "--bot.bot-count=0",
-        "--bot.binance-ws-url=ws://127.0.0.1:1", "--spring.kafka.bootstrap-servers=127.0.0.1:1",
+        "--bot.binance-ws-url=ws://127.0.0.1:1", f"--spring.kafka.bootstrap-servers={kafka.bootstrap}",
         "--spring.kafka.listener.auto-startup=false", "--spring.kafka.producer.properties.max.block.ms=500",
         f"--engine.http.url=http://127.0.0.1:{proxy.server_port}", "--engine.http.timeout=300",
         "--spring.jpa.hibernate.ddl-auto=update"], "durable-acceptance-platform.log")
@@ -159,7 +162,7 @@ try:
     sql("INSERT INTO user_balances(user_id,mint_address,available,locked,created_at,updated_at) VALUES(101,'USDT',1000,0,now(),now())")
     with tempfile.TemporaryDirectory(prefix="cex-receipt-wal-") as wal:
         env = os.environ.copy()
-        env.update({"DATABASE_HOST": database_address, "KAFKA_BOOTSTRAP_SERVERS": "127.0.0.1:1",
+        env.update({"DATABASE_HOST": database_address, "KAFKA_BOOTSTRAP_SERVERS": kafka.bootstrap,
                     "ENGINE_HTTP_ADDRESS": f"127.0.0.1:{engine_port}", "ENGINE_DATA_DIR": wal})
         binary = str(ROOT / "Cex-Engine/target/debug/cex-engine")
         engine, engine_log = start([binary], "durable-acceptance-engine.log", env)
@@ -222,6 +225,7 @@ finally:
         proxy.shutdown()
         proxy.server_close()
     subprocess.run([DOCKER, "rm", "-f", container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    evidence["kafka_removed"] = kafka.stop()
     evidence["container_removed"] = subprocess.run([DOCKER, "inspect", container], stdout=subprocess.DEVNULL,
                                                    stderr=subprocess.DEVNULL).returncode != 0
     (ARTIFACTS / "durable-acceptance-process.json").write_text(json.dumps(evidence, ensure_ascii=False, indent=2))

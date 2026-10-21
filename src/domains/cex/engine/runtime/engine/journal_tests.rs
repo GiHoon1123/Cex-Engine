@@ -95,7 +95,7 @@ fn attach(
     let p = progress.clone();
     let closed = engine.handle.closed.clone();
     engine.output_thread = Some(thread::spawn(move || {
-        output::run_store(delivery, id, p, closed, ready, sink)
+        output::run_store(delivery, id, p, closed, ready, sink, |_| Ok(()))
     }));
     let (sender, receiver) = bounded(100);
     engine.journal_rx = Some(receiver.clone());
@@ -415,6 +415,7 @@ fn journal_kafka_cannot_overtake_durable_watermark() -> Result<()> {
     let delivery = store.delivery_connection()?;
     let p = progress.clone();
     let seen = captured.clone();
+    let market_seen = captured.clone();
     let worker = thread::spawn(move || {
         output::run_store(
             delivery,
@@ -426,6 +427,10 @@ fn journal_kafka_cannot_overtake_durable_watermark() -> Result<()> {
                 seen.fetch_add(1, Ordering::SeqCst);
                 Ok(())
             },
+            move |_| {
+                market_seen.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            },
         )
     });
     thread::sleep(std::time::Duration::from_millis(25));
@@ -433,7 +438,7 @@ fn journal_kafka_cannot_overtake_durable_watermark() -> Result<()> {
     progress.durable.store(1, Ordering::Release);
     progress.journal_done.store(true, Ordering::Release);
     worker.join().unwrap()?;
-    assert_eq!(captured.load(Ordering::SeqCst), 1);
+    assert_eq!(captured.load(Ordering::SeqCst), 2);
     assert_eq!(store.delivered()?, 1);
     Ok(())
 }
@@ -470,6 +475,7 @@ fn journal_lost_delivery_cursor_republishes_same_identity_timestamp_and_payload(
                 ));
                 Ok(())
             },
+            |_| Ok(()),
         );
         if read_only {
             assert!(result.is_err());
@@ -559,7 +565,17 @@ async fn journal_standard_restart_needs_no_platform_database_and_missing_log_is_
     let directory = Directory::new();
     let mut store = initialize(&directory.0);
     let mut state = seeded();
-    let item = pending(&mut state, Command::Submit(order(1, 1, true, 1)));
+    // 이 테스트는 외부 출력이 없는 예약 명령으로 디비 비의존 복구를 검증한다.
+    // 미체결 주문도 공개 호가를 발생시키므로 실제 주문 복구와 출력 연결은
+    // 별도 격리 카프카 프로세스 검증에서 함께 확인한다.
+    let item = pending(
+        &mut state,
+        Command::Lock {
+            user_id: 1,
+            mint: "USDT".into(),
+            amount: Decimal::from(100),
+        },
+    );
     store.append(&[item], &mut 0)?;
     drop(store);
     let db =
@@ -672,5 +688,46 @@ fn journal_unsupported_schema_blocks_without_rewriting_existing_file() -> Result
         connection.query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))?,
         99
     );
+    Ok(())
+}
+
+#[test]
+fn journal_market_failure_keeps_cursor_and_replays_identical_snapshot() -> Result<()> {
+    let directory = Directory::new();
+    let mut store = initialize(&directory.0);
+    let mut state = seeded();
+    let item = pending(&mut state, Command::Submit(order(1, 2, false, 3)));
+    store.append(&[item], &mut 0)?;
+    let (_, id) = store.recover()?;
+    let mut snapshots = Vec::new();
+    for fail in [true, false] {
+        let progress = Arc::new(Progress::new(1, store.delivered()?));
+        progress.journal_done.store(true, Ordering::Release);
+        let (ready, _) = tokio::sync::oneshot::channel();
+        let result = output::run_store(
+            store.delivery_connection()?,
+            id.clone(),
+            progress,
+            Arc::new(AtomicBool::new(false)),
+            ready,
+            |_, _| Ok(()),
+            |event| {
+                snapshots.push(serde_json::to_string(event)?);
+                if fail {
+                    anyhow::bail!("의도한 시세 전달 실패");
+                }
+                Ok(())
+            },
+        );
+        if fail {
+            assert!(result.is_err());
+            assert_eq!(store.delivered()?, 0);
+        } else {
+            result?;
+        }
+    }
+    assert_eq!(snapshots.len(), 2);
+    assert_eq!(snapshots[0], snapshots[1]);
+    assert_eq!(store.delivered()?, 1);
     Ok(())
 }

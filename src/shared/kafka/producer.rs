@@ -8,7 +8,8 @@
 // 2. 취소 이벤트 (order_cancelled)
 //
 // 토픽 구조:
-// - 단일 토픽: order-events (파티션 12개)
+// - 금융 결과: order-events, 공개 호가·체결: market-events
+// - 초기 구성은 토픽마다 파티션 1개
 // - 동일 엔진의 체결·취소는 같은 엔진 식별자를 키로 사용
 // - 한 코어의 결과는 같은 파티션에서 순서대로 소비
 // - 정산용: trade_executed, order_cancelled만 발행
@@ -99,6 +100,15 @@ impl KafkaProducer {
         // 주문 소유자가 달라도 같은 엔진 결과의 순서는 바꾸지 않는다.
         let partition_key = event.engine_id.clone();
         self.publish(topic, Some(&partition_key), event).await
+    }
+
+    /// 호가는 금융 정산 토픽과 분리한다. 같은 엔진의 공개 순서는 한 파티션으로
+    /// 고정하며, 브로커 확인 전에는 해당 저널 위치의 전달을 완료하지 않는다.
+    pub(crate) async fn publish_market_snapshot(
+        &self,
+        event: &crate::domains::cex::engine::runtime::market::MarketSnapshot,
+    ) -> Result<()> {
+        self.publish("market-events", Some(&event.engine_id), event).await
     }
 
     /// Kafka 메시지 발행 (내부 메서드)

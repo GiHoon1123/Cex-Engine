@@ -3,7 +3,7 @@ use crate::domains::cex::engine::{
     entry_to_order, runtime::EngineHandle, Engine, OrderEntry, TradingPair,
 };
 use crate::domains::cex::models::order::{CreateOrderRequest, Order};
-use crate::shared::database::{Database, OrderRepository};
+use crate::shared::database::Database;
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use rust_decimal::Decimal;
@@ -103,55 +103,24 @@ impl OrderService {
     ///
     /// # Examples
     /// ```
-    /// let cancelled = service.cancel_order(user_id, order_id).await?;
+    /// let cancelled = service.cancel_order(user_id, order_id, &pair).await?;
     /// println!("주문 취소: {}", cancelled.id);
     /// ```
-    pub async fn cancel_order(&self, user_id: u64, order_id: u64) -> Result<Order> {
-        let order_repo = OrderRepository::new(self.db.pool().clone());
-
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // 1. 주문 조회
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        let order = order_repo
-            .get_by_id(order_id)
+    pub async fn cancel_order(
+        &self,
+        user_id: u64,
+        order_id: u64,
+        pair: &TradingPair,
+    ) -> Result<Order> {
+        // 현재 오더북·취소 이력과 소유자는 코어가 검증한다. 플랫폼의 비동기 반영
+        // 상태를 다시 읽으면 앞선 체결 결과보다 오래된 행을 권위로 삼게 된다.
+        // 쿼리의 거래쌍은 탐색 키이며, 잘못된 키나 소유자는 코어에서 거부한다.
+        let cancelled = self
+            .engine
+            .cancel_order(order_id, user_id, pair)
             .await
-            .context("Failed to fetch order from database")?
-            .ok_or_else(|| anyhow::anyhow!("Order not found: {}", order_id))?;
-
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // 2. 권한 확인 (본인 주문인지)
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        if order.user_id != user_id {
-            bail!("Unauthorized: You don't own this order");
-        }
-
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // 3. 취소 가능 상태 확인
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        match order.status.as_str() {
-            "filled" => bail!("Cannot cancel: Order already fully filled"),
-            "cancelled" => bail!("Cannot cancel: Order already cancelled"),
-            "pending" | "partial" => {
-                // 취소 가능
-            }
-            _ => bail!("Invalid order status: {}", order.status),
-        }
-
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // 4. 엔진에 취소 요청
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        let trading_pair = TradingPair::new(order.base_mint.clone(), order.quote_mint.clone());
-
-        let cancelled_entry = {
-            self.engine
-                .cancel_order(order_id, user_id, &trading_pair)
-                .await
-                .context("Failed to cancel order in engine")?
-        };
-
-        // 엔진은 실행 결과만 반환한다. 플랫폼 주문 상태를 여기서 먼저
-        // 변경하면 취소 소비자가 중복으로 오인해 예약 해제를 건너뛸 수 있다.
-        let mut result = entry_to_order(&cancelled_entry);
+            .context("Failed to cancel order in engine")?;
+        let mut result = entry_to_order(&cancelled);
         result.status = "cancelled".into();
         Ok(result)
     }
@@ -235,6 +204,58 @@ impl OrderService {
             }
         }
 
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod cancellation_boundary_tests {
+    use super::*;
+    use crate::domains::cex::engine::runtime::HighPerformanceEngine;
+    /// 실제 코어 루프를 사용하되 접속할 수 없는 디비를 주입한다. 취소가 플랫폼
+    /// 조회 상태나 시간 타입에 의존하지 않는지, 본인 확인과 중복 처리는 유지되는지 확인한다.
+    #[tokio::test]
+    async fn cancellation_uses_owned_core_without_platform_database() -> Result<()> {
+        let mut engine = HighPerformanceEngine::new_bench();
+        engine.bench_set_balance(1, "BTC", Decimal::ONE, Decimal::ZERO);
+        engine.start().await?;
+        let handle = engine.handle();
+        handle
+            .submit_order(OrderEntry {
+                id: 1,
+                user_id: 1,
+                order_type: "sell".into(),
+                order_side: "limit".into(),
+                base_mint: "BTC".into(),
+                quote_mint: "USDT".into(),
+                price: Some(Decimal::from(60000)),
+                amount: Decimal::ONE,
+                quote_amount: None,
+                filled_amount: Decimal::ZERO,
+                remaining_amount: Decimal::ONE,
+                remaining_quote_amount: None,
+                created_at: Utc::now(),
+            })
+            .await?;
+        let service = OrderService::new(
+            Database::lazy("postgres://root:1234@127.0.0.1:1/cex")?,
+            handle.clone(),
+        );
+        let pair = TradingPair::new("BTC".into(), "USDT".into());
+        assert!(service.cancel_order(2, 1, &pair).await.is_err());
+        assert!(service
+            .cancel_order(1, 1, &TradingPair::new("ETH".into(), "USDT".into()))
+            .await
+            .is_err());
+        assert_eq!(handle.get_orderbook(&pair, None).await?.1.len(), 1);
+        assert_eq!(service.cancel_order(1, 1, &pair).await?.status, "cancelled");
+        assert_eq!(service.cancel_order(1, 1, &pair).await?.status, "cancelled");
+        assert!(handle.get_orderbook(&pair, None).await?.1.is_empty());
+        assert_eq!(
+            handle.get_balance(1, "BTC").await?,
+            (Decimal::ONE, Decimal::ZERO)
+        );
+        engine.stop().await?;
         Ok(())
     }
 }

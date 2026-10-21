@@ -1,7 +1,5 @@
-use axum::http::Method;
 use axum::Router;
 use tokio::net::TcpListener;
-use tower_http::cors::{AllowOrigin, CorsLayer};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -91,7 +89,7 @@ use crate::domains::cex::models::*;
     ),
     info(
         title = "CEX Engine",
-        description = "API server for Solana blockchain interactions",
+        description = "단일 스레드 주문·체결 엔진",
         version = "1.0.0"
     )
 )]
@@ -123,69 +121,14 @@ async fn main() {
     // HTTP·UDP에는 복제 가능한 송신 핸들만 주입한다.
     let mut engine = crate::domains::cex::engine::runtime::HighPerformanceEngine::new(db.clone());
     engine.start().await.expect("Failed to start engine");
-    let mut app_state =
+    let app_state =
         AppState::new(db.clone(), engine.handle()).expect("Failed to initialize AppState");
-
-    // CORS 설정
-    // 개발 환경: localhost 허용, 프로덕션: 모든 origin 허용 (또는 특정 도메인만)
-    let cors = if std::env::var("RUST_ENV").unwrap_or_else(|_| "dev".to_string()) == "prod" {
-        // 프로덕션: 모든 origin 허용
-        // AllowOrigin::any()를 사용하면 브라우저에서 제대로 작동합니다
-        CorsLayer::new()
-            .allow_origin(AllowOrigin::any())
-            .allow_methods([
-                Method::GET,
-                Method::POST,
-                Method::PUT,
-                Method::DELETE,
-                Method::OPTIONS,
-                Method::PATCH,
-            ])
-            .allow_headers([
-                axum::http::header::CONTENT_TYPE,
-                axum::http::header::AUTHORIZATION,
-                axum::http::header::ACCEPT,
-                axum::http::header::ORIGIN,
-            ])
-            .allow_credentials(false) // 모든 origin 허용 시 credentials는 false
-            .expose_headers([
-                axum::http::header::CONTENT_TYPE,
-                axum::http::header::AUTHORIZATION,
-            ])
-        // 특정 도메인만 허용하려면:
-        // .allow_origin(AllowOrigin::exact("https://your-frontend-domain.vercel.app".parse().unwrap()))
-        // .allow_credentials(true)
-    } else {
-        // 개발 환경: localhost만 허용
-        CorsLayer::new()
-            .allow_origin(AllowOrigin::exact("http://localhost:3003".parse().unwrap()))
-            .allow_methods([
-                Method::GET,
-                Method::POST,
-                Method::PUT,
-                Method::DELETE,
-                Method::OPTIONS,
-                Method::PATCH,
-            ])
-            .allow_headers([
-                axum::http::header::CONTENT_TYPE,
-                axum::http::header::AUTHORIZATION,
-                axum::http::header::ACCEPT,
-                axum::http::header::ORIGIN,
-            ])
-            .allow_credentials(true)
-            .expose_headers([
-                axum::http::header::CONTENT_TYPE,
-                axum::http::header::AUTHORIZATION,
-            ])
-    };
 
     // Router 생성 (주문 생성/취소/헬스체크만 활성화)
     let app = Router::new()
         .merge(create_router())
         // Swagger UI 활성화
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
-        .layer(cors)
         .with_state(app_state);
 
     // 기본은 내부 루프백이다. 컨테이너 배포·격리 실행 검증에서만 명시적으로 주소를 준다.

@@ -28,3 +28,5 @@ pub use commands::OrderCommand;
 pub use balance_commands::BalanceCommand;
 
 mod journal;
+
+pub(crate) mod market;

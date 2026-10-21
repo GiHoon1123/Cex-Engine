@@ -84,6 +84,14 @@ pub async fn create_order(
     Ok((status, Json(accepted.receipt)))
 }
 
+/// 플랫폼이 인증한 사용자와 원본 주문의 거래쌍을 전달한다.
+#[derive(serde::Deserialize)]
+pub struct CancelOrderQuery {
+    pub user_id: u64,
+    pub base_mint: String,
+    pub quote_mint: String,
+}
+
 /// 주문 취소 핸들러
 /// Cancel order handler
 ///
@@ -106,7 +114,9 @@ pub async fn create_order(
     path = "/api/cex/orders/{order_id}",
     params(
         ("order_id" = u64, Path, description = "Order ID to cancel"),
-        ("user_id" = u64, Query, description = "User ID")
+        ("user_id" = u64, Query, description = "사용자 식별자"),
+        ("base_mint" = String, Query, description = "기준 자산"),
+        ("quote_mint" = String, Query, description = "호가 자산")
     ),
     responses(
         (status = 200, description = "Order cancelled successfully", body = Order),
@@ -118,34 +128,17 @@ pub async fn create_order(
 pub async fn cancel_order(
     State(app_state): State<AppState>,
     Path(order_id): Path<u64>,
-    Query(params): Query<std::collections::HashMap<String, String>>,
+    params: Result<Query<CancelOrderQuery>, axum::extract::rejection::QueryRejection>,
 ) -> Result<Json<Order>, (StatusCode, Json<serde_json::Value>)> {
-    // user_id를 쿼리 파라미터에서 가져옴
-    let user_id = params
-        .get("user_id")
-        .ok_or_else(|| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": "Missing user_id query parameter"
-                })),
-            )
-        })?
-        .parse::<u64>()
-        .map_err(|_| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": "Invalid user_id format"
-                })),
-            )
-        })?;
-
+    // 쿼리 해독 오류도 다른 명령 오류와 같은 구조로 반환한다.
+    let Query(params) = params.map_err(|_| (StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({"error":"Invalid cancellation query: user_id, base_mint and quote_mint are required"}))))?;
+    let pair = crate::domains::cex::engine::TradingPair::new(params.base_mint, params.quote_mint);
     // Service 호출
     let order = app_state
         .cex_state
         .order_service
-        .cancel_order(user_id, order_id)
+        .cancel_order(params.user_id, order_id, &pair)
         .await
         .map_err(|e| {
             (

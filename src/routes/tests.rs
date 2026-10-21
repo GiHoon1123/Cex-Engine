@@ -123,8 +123,7 @@ async fn trading_routes_still_validate_request_bodies() {
     }
 }
 
-/// 취소 핸들러가 기존 user_id 입력 검증을 유지하는지 확인한다.
-/// user_id가 없으면 DB 조회 전에 오류를 반환하므로 외부 DB 없이 검사할 수 있다.
+/// 취소 명령에 사용자와 거래쌍이 없으면 코어에 전달하기 전에 거부한다.
 #[tokio::test]
 async fn cancellation_still_requires_user_id() {
     let (router, _engine) = app().await;
@@ -139,7 +138,7 @@ async fn cancellation_still_requires_user_id() {
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     let body = to_bytes(response.into_body(), 1024).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["error"], "Missing user_id query parameter");
+    assert_eq!(json["error"], "Invalid cancellation query: user_id, base_mint and quote_mint are required");
 }
 
 #[tokio::test]
