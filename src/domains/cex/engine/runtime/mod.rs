@@ -16,6 +16,7 @@ pub mod balance_commands;
 pub mod engine;
 pub mod threads;
 pub mod db_commands;
+mod startup;
 #[cfg(any(test, feature = "bench_mode"))]
 pub mod bench_engine;
 

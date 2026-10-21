@@ -168,7 +168,8 @@ pub struct HighPerformanceEngine {
     /// - `engine_thread_loop()`에서 사용
     /// 
     /// # 초기화
-    /// - 서버 시작 시 DB에서 활성 주문 로드
+    /// - 현재는 미종결 주문이 없는 DB 상태만 검증 후 시작
+    /// - 활성 주문은 영속 접수 순서·체결 확정 기록에 따른 재생 경로가 필요
     /// - 주문 제출 시 자동 생성
     orderbooks: Arc<RwLock<HashMap<TradingPair, OrderBook>>>,
     
@@ -443,9 +444,9 @@ impl HighPerformanceEngine {
     /// 엔진 시작 (내부 구현)
     /// 
     /// # 처리 과정
-    /// 1. 메모리 오더북 구성
-    /// 2. DB에서 잔고 로드
-    /// 3. BalanceCache에 로드
+    /// 1. 중복 시작·정지된 인스턴스 재사용 차단
+    /// 2. 같은 DB 스냅샷의 미종결 주문·예약금·잔액 검증
+    /// 3. 검증된 BalanceCache만 반영 (예약금을 사용 가능 금액에 합치지 않음)
     /// 4. WAL 스레드 시작
     /// 5. 엔진 스레드 시작
     /// 
@@ -454,8 +455,18 @@ impl HighPerformanceEngine {
     /// 엔진 시작 (내부 구현)
     /// `&mut self`를 사용하여 필드를 직접 수정합니다.
     pub async fn start_impl(&mut self) -> Result<()> {
-        use crate::shared::database::repositories::cex::UserBalanceRepository;
-        use anyhow::Context;
+        // 이미 동작하는 상태를 DB 값으로 덮거나 작업 스레드를 중복 생성하지 않는다.
+        // &mut self는 같은 객체의 동시 호출을 막지만 순차적인 두 번째 시작은 막지 않는다.
+        anyhow::ensure!(
+            !self.running.load(std::sync::atomic::Ordering::Acquire),
+            "Engine is already running"
+        );
+        // stop()은 Sender를 닫으므로 같은 인스턴스로 다시 시작할 수 없다.
+        // 새 엔진을 생성해 초기 검증을 다시 수행하도록 명시적으로 실패시킨다.
+        anyhow::ensure!(
+            self.order_tx.is_some() && self.balance_tx.is_some(),
+            "Stopped engine cannot be restarted; create a new instance"
+        );
         
         eprintln!("[Engine Start] Starting engine initialization...");
         
@@ -466,28 +477,15 @@ impl HighPerformanceEngine {
                 .as_ref()
                 .context("Database unavailable in this mode")?;
 
-            eprintln!("[Engine Start] Loading balances from database...");
-            let balance_repo = UserBalanceRepository::new(db.pool().clone());
-            let all_balances = balance_repo
-                .get_all_balances()
-                .await
-                .context("Failed to load balances from database")?;
-            
-            eprintln!("[Engine Start] Loaded {} balances from database", all_balances.len());
-
+            eprintln!("[Engine Start] Validating startup snapshot...");
+            let balances = super::startup::load_balances(db.pool()).await?;
             {
-                // 잔고 로드: locked는 0으로 초기화 (활성 주문 기반으로 재계산)
+                // 검증 실패는 이 지점보다 먼저 반환된다. 따라서 캐시 일부 반영이나
+                // 작업 스레드 시작 없이 실패하며 DB에는 취소·언락을 기록하지 않는다.
                 let mut executor = self.executor.lock();
-                for balance in all_balances {
-                    // locked는 0으로 초기화 (활성 주문 기반으로 재계산할 예정)
-                    executor.balance_cache_mut().set_balance(
-                        balance.user_id,
-                        &balance.mint_address,
-                        balance.available + balance.locked, // available + locked를 available로 합침
-                        rust_decimal::Decimal::ZERO, // locked는 0으로 초기화
-                    );
-                }
+                *executor.balance_cache_mut() = balances;
             }
+            self.orderbooks.write().clear();
         } else {
             let mut executor = self.executor.lock();
             executor.balance_cache_mut().clear();
@@ -911,7 +909,7 @@ impl HighPerformanceEngine {
     /// 엔진 시작 (pub 메서드 - main.rs에서 직접 호출 가능)
     /// 
     /// # 처리 과정
-    /// 1. DB에서 잔고/주문 로드
+    /// 1. DB 초기 상태 검증 (미종결 주문·예약금은 재생 근거 없이 복원하지 않음)
     /// 2. WAL 스레드 시작
     /// 3. 엔진 스레드 시작
     /// 4. 실행 플래그 설정
@@ -937,4 +935,7 @@ impl HighPerformanceEngine {
         self.stop_impl().await
     }
 }
+
+#[cfg(test)]
+mod startup_tests;
 

@@ -235,38 +235,5 @@ impl UserBalanceRepository {
         Ok(row.map(|r| r.get("sufficient")).unwrap_or(false))
     }
 
-    /// 모든 사용자의 모든 잔고 조회 (엔진 시작 시 사용)
-    /// Get all balances for all users (used when engine starts)
-    /// 
-    /// # 사용 목적
-    /// 서버 재시작 시 모든 사용자의 잔고를 메모리(BalanceCache)에 로드
-    /// 
-    /// # 반환값
-    /// 모든 사용자의 모든 잔고 목록
-    pub async fn get_all_balances(&self) -> Result<Vec<UserBalance>> {
-        let rows = sqlx::query(
-            r#"
-            SELECT id, user_id, mint_address, available, locked, created_at, updated_at
-            FROM user_balances
-            ORDER BY user_id ASC, mint_address ASC
-            "#,
-        )
-        .fetch_all(&self.pool)
-        .await
-        .context("Failed to fetch all balances")?;
-
-        Ok(rows
-            .into_iter()
-            .map(|row| UserBalance {
-                id: row.get::<i64, _>("id") as u64,
-                user_id: row.get::<i64, _>("user_id") as u64,
-                mint_address: row.get("mint_address"),
-                available: row.get("available"),
-                locked: row.get("locked"),
-                created_at: row.get("created_at"),
-                updated_at: row.get("updated_at"),
-            })
-            .collect())
-    }
 }
 
