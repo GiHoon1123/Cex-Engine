@@ -910,3 +910,100 @@ fn journal_ioc_contract_rejects_previous_fee_version_without_mutation() -> Resul
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn journal_rejection_preserves_original_and_restart_duplicate_has_no_second_effect(
+) -> Result<()> {
+    let directory = Directory::new();
+    let store = initialize(&directory.0);
+    let mut engine = HighPerformanceEngine::new_bench();
+    attach(&mut engine, store, |_, _| Ok(()));
+    // 최초 잔고보다 큰 예약은 전체 명령 거절이다. 성공 응답은 거래 성공이 아닌 저널 확정을 뜻한다.
+    let rejected = order(1, 1, true, 11);
+    engine.handle().submit_order(rejected.clone()).await?;
+    assert_eq!(
+        engine.handle().get_balance(1, "USDT").await?,
+        (Decimal::from(1000), Decimal::ZERO)
+    );
+    engine.stop().await?;
+    let store = Store::open(&directory.0)?;
+    let record = store.read(1)?;
+    match record.outcome {
+        Outcome::Applied(Some(output::OutputBatch::Rejected { order, .. })) => {
+            assert_eq!(
+                serde_json::to_value(order)?,
+                serde_json::to_value(&rejected)?
+            );
+        }
+        _ => panic!("거절 원본이 저널에 없습니다"),
+    }
+    let mut restarted = HighPerformanceEngine::new_bench();
+    attach(&mut restarted, store, |_, _| Ok(()));
+    restarted.handle().submit_order(rejected).await?;
+    assert_eq!(
+        restarted.handle().get_balance(1, "USDT").await?,
+        (Decimal::from(1000), Decimal::ZERO)
+    );
+    restarted.stop().await?;
+    let store = Store::open(&directory.0)?;
+    assert!(matches!(store.read(2)?.outcome, Outcome::Applied(None)));
+    Ok(())
+}
+
+#[test]
+fn journal_rejection_output_failure_keeps_cursor_and_identical_original() -> Result<()> {
+    let directory = Directory::new();
+    let mut store = initialize(&directory.0);
+    let item = pending(&mut seeded(), Command::Submit(order(1, 1, true, 11)));
+    store.append(&[item], &mut 0)?;
+    let (_, id) = store.recover()?;
+    let mut attempts = Vec::new();
+    for fail in [true, false] {
+        let progress = Arc::new(Progress::new(1, store.delivered()?));
+        progress.journal_done.store(true, Ordering::Release);
+        let (ready, _) = tokio::sync::oneshot::channel();
+        let result = output::run_store(
+            store.delivery_connection()?,
+            id.clone(),
+            progress,
+            Arc::new(AtomicBool::new(false)),
+            ready,
+            |batch, position| {
+                assert!(matches!(batch, output::OutputBatch::Rejected { .. }));
+                attempts.push((
+                    position.sequence,
+                    position.timestamp,
+                    serde_json::to_string(batch).unwrap(),
+                ));
+                if fail {
+                    Err(output::DeliveryError {
+                        next_event: 0,
+                        reason: "거절 전달 실패 주입".into(),
+                    })
+                } else {
+                    Ok(())
+                }
+            },
+            |_| Ok(()),
+        );
+        assert_eq!(result.is_err(), fail);
+        assert_eq!(store.delivered()?, if fail { 0 } else { 1 });
+    }
+    assert_eq!(attempts[0], attempts[1]);
+    Ok(())
+}
+
+#[test]
+fn journal_rejection_contract_blocks_version_three_without_rewriting() -> Result<()> {
+    let directory = Directory::new();
+    let store = initialize(&directory.0);
+    store.connection.execute_batch("PRAGMA user_version=3")?;
+    drop(store);
+    assert!(Store::open(&directory.0).is_err());
+    let connection = rusqlite::Connection::open(directory.0.join("journal.sqlite3"))?;
+    assert_eq!(
+        connection.query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))?,
+        3
+    );
+    Ok(())
+}

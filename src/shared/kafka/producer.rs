@@ -104,9 +104,20 @@ impl KafkaProducer {
 
     /// 같은 엔진 키를 사용해 개별 체결 뒤의 시장가 종료·예약 반환 순서를 보존한다.
     pub(crate) async fn publish_market_order_completed(
-        &self, event: &crate::shared::kafka::events::MarketOrderCompletedEvent<'_>,
+        &self,
+        event: &crate::shared::kafka::events::MarketOrderCompletedEvent<'_>,
     ) -> Result<()> {
-        self.publish("order-events", Some(&event.engine_id), event).await
+        self.publish("order-events", Some(&event.engine_id), event)
+            .await
+    }
+
+    /// 거절도 같은 엔진 키를 사용한다. 출력 확인 이전에는 전달 커서를 진행하지 않는다.
+    pub(crate) async fn publish_order_rejected(
+        &self,
+        event: &crate::shared::kafka::events::OrderRejectedEvent<'_>,
+    ) -> Result<()> {
+        self.publish("order-events", Some(&event.engine_id), event)
+            .await
     }
 
     /// 호가는 금융 정산 토픽과 분리한다. 같은 엔진의 공개 순서는 한 파티션으로
@@ -115,7 +126,8 @@ impl KafkaProducer {
         &self,
         event: &crate::domains::cex::engine::runtime::market::MarketSnapshot,
     ) -> Result<()> {
-        self.publish("market-events", Some(&event.engine_id), event).await
+        self.publish("market-events", Some(&event.engine_id), event)
+            .await
     }
 
     /// Kafka 메시지 발행 (내부 메서드)

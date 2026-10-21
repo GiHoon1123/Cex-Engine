@@ -3,7 +3,8 @@ use super::submission::{AppliedSubmission, MarketCompletion};
 use crate::{
     domains::cex::engine::types::{MatchResult, OrderEntry},
     shared::kafka::{
-        KafkaProducer, MarketOrderCompletedEvent, OrderCancelledEvent, TradeExecutedEvent,
+        KafkaProducer, MarketOrderCompletedEvent, OrderCancelledEvent, OrderRejectedEvent,
+        TradeExecutedEvent,
     },
 };
 use anyhow::Result;
@@ -25,7 +26,7 @@ pub(super) enum OutputBatch {
     },
     Cancelled(OrderEntry),
     Rejected {
-        order_id: u64,
+        order: OrderEntry,
         reason: String,
     },
 }
@@ -91,7 +92,35 @@ pub(super) fn deliver(
 ) -> std::result::Result<(), DeliveryError> {
     runtime.block_on(async {
         match batch {
-            OutputBatch::Rejected { .. } => {}
+            OutputBatch::Rejected { order, .. } => {
+                // 거절도 같은 명령의 영속 결과다. 오류 문자열이나 HTTP 상태를 반환 근거로
+                // 사용하지 않고 원본과 연결된 고유 결과를 체결·취소와 같은 순서로 공개한다.
+                let budget_buy = order.order_side == "market" && order.order_type == "buy";
+                let event = OrderRejectedEvent {
+                    event_id: format!("{}:{}:0", position.engine_id, position.sequence),
+                    engine_id: position.engine_id.into(),
+                    event_type: "order_rejected",
+                    order_id: order.id,
+                    user_id: order.user_id,
+                    order_type: &order.order_type,
+                    order_side: &order.order_side,
+                    base_mint: &order.base_mint,
+                    quote_mint: &order.quote_mint,
+                    price: order.price,
+                    amount: if budget_buy { None } else { Some(order.amount) },
+                    quote_amount: order.quote_amount,
+                    fee_rate: order.fee_rate,
+                    reason_code: "ENGINE_EXECUTION_REJECTED",
+                    timestamp: position.timestamp,
+                };
+                producer
+                    .publish_order_rejected(&event)
+                    .await
+                    .map_err(|error| DeliveryError {
+                        next_event: 0,
+                        reason: format!("{error:#}"),
+                    })?;
+            }
             OutputBatch::Submitted {
                 trades, completion, ..
             } => {

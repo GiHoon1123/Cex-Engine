@@ -10,7 +10,7 @@
 // 중요: 단일 토픽으로 통합하여 순서 보장
 // - 토픽: order-events (파티션 1개)
 // - 파티션 키: 엔진 식별자 (한 코어의 결과는 같은 파티션으로)
-// - 정산용: trade_executed, order_cancelled, market_order_completed 발행
+// - 정산용: trade_executed, order_cancelled, market_order_completed, order_rejected 발행
 // =====================================================
 
 use chrono::{DateTime, Utc};
@@ -108,4 +108,25 @@ pub(crate) struct MarketOrderCompletedEvent<'a> {
     pub timestamp: DateTime<Utc>,
     #[serde(flatten)]
     pub result: &'a crate::domains::cex::engine::runtime::MarketCompletion,
+}
+
+/// 전부 거절된 원본 명령을 식별한다. 플랫폼은 원본을 대조한 뒤 예약을 반환한다.
+/// 부분 체결 후 만료와 다르며 내부 오류 문자열은 공개하지 않는다.
+#[derive(Debug, Serialize)]
+pub(crate) struct OrderRejectedEvent<'a> {
+    pub event_id: String,
+    pub engine_id: String,
+    pub event_type: &'static str,
+    pub order_id: u64,
+    pub user_id: u64,
+    pub order_type: &'a str,
+    pub order_side: &'a str,
+    pub base_mint: &'a str,
+    pub quote_mint: &'a str,
+    pub price: Option<Decimal>,
+    pub amount: Option<Decimal>,
+    pub quote_amount: Option<Decimal>,
+    pub fee_rate: Decimal,
+    pub reason_code: &'static str,
+    pub timestamp: DateTime<Utc>,
 }

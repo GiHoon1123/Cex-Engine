@@ -147,7 +147,7 @@ fn execute(state: &mut EngineState, command: &Command) -> Result<Option<OutputBa
             ) {
                 Ok(applied) => OutputBatch::submitted(applied),
                 Err(error) => OutputBatch::Rejected {
-                    order_id: order.id,
+                    order: order.clone(),
                     reason: error.to_string(),
                 },
             };

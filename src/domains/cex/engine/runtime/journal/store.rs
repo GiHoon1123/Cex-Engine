@@ -76,7 +76,7 @@ impl Store {
         let connection = Connection::open(&path)?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
         ensure!(
-            version == 0 || version == 3,
+            version == 0 || version == 4,
             "Unsupported journal schema version"
         );
         if version == 0 {
@@ -97,7 +97,7 @@ impl Store {
              CREATE TRIGGER IF NOT EXISTS records_no_update BEFORE UPDATE ON records BEGIN SELECT RAISE(ABORT,'immutable journal'); END;
              CREATE TRIGGER IF NOT EXISTS records_no_delete BEFORE DELETE ON records BEGIN SELECT RAISE(ABORT,'immutable journal'); END;
              CREATE TRIGGER IF NOT EXISTS genesis_no_update BEFORE UPDATE ON genesis BEGIN SELECT RAISE(ABORT,'immutable genesis'); END;
-             PRAGMA user_version=3;
+             PRAGMA user_version=4;
              CREATE TRIGGER IF NOT EXISTS genesis_no_delete BEFORE DELETE ON genesis BEGIN SELECT RAISE(ABORT,'immutable genesis'); END;
              COMMIT;"
         )?;
@@ -144,7 +144,7 @@ impl Store {
     pub fn initialize(&mut self, state: &EngineState) -> Result<()> {
         ensure!(!self.initialized()?, "Journal already initialized");
         let genesis = Genesis {
-            version: 3,
+            version: 4,
             engine_id: uuid::Uuid::new_v4().to_string(),
             balances: state.executor.balance_cache().journal_seed(),
         };
@@ -163,7 +163,7 @@ impl Store {
         )?;
         let genesis: Genesis = decode(payload, checksum)?;
         ensure!(
-            genesis.version == 3 && uuid::Uuid::parse_str(&genesis.engine_id).is_ok(),
+            genesis.version == 4 && uuid::Uuid::parse_str(&genesis.engine_id).is_ok(),
             "Unsupported journal genesis"
         );
         let mut state = EngineState::new();
