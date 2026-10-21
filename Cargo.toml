@@ -9,7 +9,6 @@ bench_mode = []
 [dependencies]
 axum = { version = "0.7", features = ["ws"] }
 tokio = { version = "1.35", features = ["full"] }
-tokio-util = { version = "0.7", features = ["compat", "io"] }
 tower = "0.4"
 tower-http = { version = "0.5", features = ["cors"] }
 
@@ -65,12 +64,8 @@ libc = "0.2"  # 실시간 스케줄링용 (sched_setscheduler)
 # 벤치마크 (TPS 측정)
 criterion = { version = "0.5", features = ["html_reports"] }
 
-# WebSocket (바이낸스 클라이언트 및 프론트엔드 서버)
-tokio-tungstenite = { version = "0.21", features = ["native-tls"] }
+# 동시 요청 회귀 테스트에서 사용하는 비동기 작업 모음이다.
 futures-util = "0.3"
-url = "2.5"
-hyper = { version = "1.0", features = ["server", "http1", "http2"] }
-hyper-util = { version = "0.1", features = ["tokio"] }
 
 # Kafka (이벤트 발행용)
 rdkafka = { version = "0.36", features = ["cmake-build", "ssl-vendored"] }

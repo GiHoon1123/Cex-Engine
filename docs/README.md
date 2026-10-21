@@ -14,3 +14,5 @@
 - [체결 결과를 하나의 출력 워커로 분리하기](decisions/008-ordered-output-worker.md): 체결별 스레드·핵심 경로 I/O 제거, 출력 포화·오류·종료 처리와 실제 Kafka 검증.
 
 - [WAL 확정 후 공개와 자체 저널 복구](decisions/009-durable-journal-recovery.md): 기록·Kafka 워커 분리, 커밋 후 응답·발행, 전체 명령 재생과 강제 종료 검증.
+
+- [엔진의 비활성 봇 제거](decisions/010-remove-engine-bot.md): 플랫폼으로 봇 책임을 모으고 남은 파일·직접 의존성을 제거한 근거와 회귀 검사.
