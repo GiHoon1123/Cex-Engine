@@ -18,6 +18,8 @@ use std::collections::HashMap;
 use rust_decimal::Decimal;
 use anyhow::{Result, bail};
 
+mod settlement;
+
 /// 사용자별 자산별 잔고
 /// Key: (user_id, mint_address)
 /// Value: Balance
@@ -25,13 +27,16 @@ use anyhow::{Result, bail};
 /// 예시:
 /// (123, "SOL") -> Balance { available: 10.0, locked: 1.0 }
 /// (123, "USDT") -> Balance { available: 1000.0, locked: 50.0 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Balance {
     /// 사용 가능 잔고 (즉시 거래 가능)
     pub available: Decimal,
     /// 잠긴 잔고 (주문에 사용 중)
     pub locked: Decimal,
 }
+
+#[cfg(test)]
+mod settlement_tests;
 
 impl Balance {
     /// 새 잔고 생성 (모두 0)
@@ -181,54 +186,6 @@ impl BalanceCache {
         
         balance.locked -= amount;
         balance.available += amount;
-        
-        Ok(())
-    }
-    
-    /// 잔고 이체 (체결 시)
-    /// from_user의 locked 차감 → to_user의 available 증가
-    /// 
-    /// # Arguments
-    /// * `from_user` - 보내는 사용자
-    /// * `to_user` - 받는 사용자
-    /// * `mint` - 자산 주소
-    /// * `amount` - 이체 금액
-    /// * `from_locked` - from_user가 locked에서 차감? (true: locked, false: available)
-    pub fn transfer(
-        &mut self,
-        from_user: u64,
-        to_user: u64,
-        mint: &str,
-        amount: Decimal,
-        from_locked: bool,
-    ) -> Result<()> {
-        // from_user 차감
-        {
-            let from_balance = self.get_balance_mut(from_user, mint);
-            if from_locked {
-                if from_balance.locked < amount {
-                    bail!(
-                        "Insufficient locked balance: user={}, mint={}, required={}, locked={}, available={}",
-                        from_user, mint, amount, from_balance.locked, from_balance.available
-                    );
-                }
-                from_balance.locked -= amount;
-            } else {
-                if from_balance.available < amount {
-                    bail!(
-                        "Insufficient available balance: user={}, mint={}, required={}, available={}, locked={}",
-                        from_user, mint, amount, from_balance.available, from_balance.locked
-                    );
-                }
-                from_balance.available -= amount;
-            }
-        }
-        
-        // to_user 증가
-        {
-            let to_balance = self.get_balance_mut(to_user, mint);
-            to_balance.available += amount;
-        }
         
         Ok(())
     }

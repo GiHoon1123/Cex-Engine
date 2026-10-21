@@ -1,26 +1,7 @@
-// =====================================================
-// Executor - 체결 실행 엔진
-// =====================================================
-// 역할: Matcher가 반환한 MatchResult를 받아서 실제 체결 처리
-// 
-// 핵심 책임:
-// 1. WAL 메시지 발행 (먼저! - 복구 가능성 보장)
-// 2. 잔고 업데이트 (메모리)
-// 3. Trade 레코드 생성 (DB 저장 준비)
-// 4. Order 상태 업데이트
-//
-// 처리 흐름:
-// MatchResult → WAL 메시지 발행 → 잔고 업데이트 → Trade 생성 → DB 큐
-// 
-// 안전성:
-// - WAL 메시지를 먼저 발행하므로 WAL Thread가 디스크에 기록
-// - 메모리 업데이트는 메시지 발행 후 바로 실행 (Non-blocking)
-// 
-// 성능:
-// - WAL Writer를 직접 호출하지 않음 (디스크 I/O 대기 없음)
-// - Channel로 메시지만 전송 (~100ns)
-// - 실제 디스크 쓰기는 WAL Thread (Core 1)에서 처리
-// =====================================================
+//! 체결 결과의 두 자산을 실행용 캐시에 함께 반영한다.
+//!
+//! 캐시 검증 오류는 잔액을 바꾸지 않는다. 성공 후의 기존 DB 명령 발행은 별도 경계이며
+//! 이 모듈이 DB·이벤트·주문장까지 원자적으로 확정하거나 WAL 복구를 제공하지는 않는다.
 
 use rust_decimal::Decimal;
 use anyhow::{Result, Context as AnyhowContext};
@@ -108,213 +89,30 @@ impl Executor {
         self.db_sender = None;
     }
     
-    /// 체결 실행
-    /// 
-    /// # Arguments
-    /// * `match_result` - Matcher가 생성한 매칭 결과
-    /// * `skip_db_updates` - DB 업데이트 명령 전송을 건너뛸지 여부 (시장가 주문의 경우 true)
-    /// 
-    /// # Returns
-    /// ExecutionResult - 실행 결과
-    /// 
-    /// # Process (순서 중요!)
-    /// 1. WAL 메시지 발행 (먼저!)
-    /// 2. 잔고 확인 (locked 확인)
-    /// 3. 잔고 이체 (locked → available)
-    /// 4. WAL에 잔고 업데이트 메시지 발행
-    /// 5. DB 업데이트 명령 전송 (skip_db_updates가 false인 경우만)
-    /// 
-    /// # 안전성
-    /// - WAL 메시지를 먼저 발행하므로 WAL Thread가 디스크에 기록
-    /// - 잔고 부족 시 에러 반환 (체결 취소)
-    /// 
-    /// # 성능
-    /// - Channel send: ~100ns (디스크 대기 없음!)
-    /// - WAL Thread가 비동기로 디스크 쓰기
-    /// - Engine은 즉시 다음 작업 진행
+    /// 한 체결의 캐시 반영. 검증 실패 시 잔액·새 계정·DB 명령이 모두 그대로다.
+    /// skip_db_updates=true인 시장가 경로의 DB 집계는 기존 호출자가 담당한다.
+    /// false이면 성공 뒤 기존 체결 명령을 보낸다. 이 발행과 캐시는 한 트랜잭션이 아니다.
     pub fn execute_trade(&mut self, match_result: &MatchResult, skip_db_updates: bool) -> Result<ExecutionResult> {
-        // ============================================
-        // Step 1: WAL 메시지 발행 (가장 먼저!) - 주석 처리됨 (WAL 비활성화)
-        // ============================================
-        // "야, WAL Thread! 이거 디스크에 써줘!" (메시지 발행)
-        // Channel에 넣기만 하고 바로 리턴 (Non-blocking)
-        // WAL 로그 쓰기 비활성화 (디스크 공간 부족 문제로 인해 임시 비활성화)
-        /*
-        if let Some(sender) = &self.wal_sender {
-            let entry = WalEntry::TradeExecuted {
-                buy_order_id: match_result.buy_order_id,
-                sell_order_id: match_result.sell_order_id,
-                buyer_id: match_result.buyer_id,
-                seller_id: match_result.seller_id,
-                price: match_result.price.to_string(),
-                amount: match_result.amount.to_string(),
-                base_mint: match_result.base_mint.clone(),
-                quote_mint: match_result.quote_mint.clone(),
-                timestamp: Utc::now().timestamp_millis(),
-            };
-            
-            // ★ 메시지 발행 (~100ns, 빠름!)
-            sender.send(entry)
-                .context("Failed to send trade to WAL channel")?;
-        }
-        */
-        
-        // ============================================
-        // Step 2: 잔고 이체 (매도자 → 매수자)
-        // ============================================
-        
-        // 계산: 총 거래 금액
-        let total_value = match_result.price * match_result.amount;
-        
-        // 2-1. 매수자: USDT 이체 (locked → 매도자 available)
-        self.balance_cache.transfer(
-            match_result.buyer_id,
-            match_result.seller_id,
-            &match_result.quote_mint,  // USDT
-            total_value,
-            true,  // locked에서 차감
-        ).context("Failed to transfer USDT from buyer to seller")?;
-        
-        // 2-2. 매도자: 기준 자산 이체 (locked → 매수자 available)
-        self.balance_cache.transfer(
-            match_result.seller_id,
-            match_result.buyer_id,
-            &match_result.base_mint,  // SOL 등
-            match_result.amount,
-            true,  // locked에서 차감
-        ).context("Failed to transfer base asset from seller to buyer")?;
-        
-        // ============================================
-        // Step 3: DB Writer 채널로 체결 내역 전송 (실시간)
-        // ============================================
-        // skip_db_updates가 true인 경우 DB 명령 전송 건너뛰기 (시장가 주문의 경우)
+        self.balance_cache.settle_trade(match_result)?;
         if !skip_db_updates {
             if let Some(sender) = &self.db_sender {
-                let cmd = DbCommand::InsertTrade {
-                    buy_order_id: match_result.buy_order_id,
-                    sell_order_id: match_result.sell_order_id,
-                    buyer_id: match_result.buyer_id,
-                    seller_id: match_result.seller_id,
-                    price: match_result.price,
-                    amount: match_result.amount,
-                    base_mint: match_result.base_mint.clone(),
-                    quote_mint: match_result.quote_mint.clone(),
+                let command = DbCommand::InsertTrade {
+                    buy_order_id: match_result.buy_order_id, sell_order_id: match_result.sell_order_id,
+                    buyer_id: match_result.buyer_id, seller_id: match_result.seller_id,
+                    price: match_result.price, amount: match_result.amount,
+                    base_mint: match_result.base_mint.clone(), quote_mint: match_result.quote_mint.clone(),
                     timestamp: Utc::now(),
                 };
-                let _ = sender.send(cmd);  // Non-blocking (~100ns)
-            }
-            
-            // ============================================
-            // Step 4: WAL에 잔고 업데이트 메시지 발행 및 DB Writer로 잔고 업데이트 명령 전송
-            // ============================================
-            
-            // 계산: 총 거래 금액 (이미 위에서 계산했지만 재사용)
-            let total_value = match_result.price * match_result.amount;
-            
-            // 매수자: USDT 차감 (locked에서 차감됨)
-            // 매도자: USDT 증가 (available에 추가됨)
-            // 매도자: SOL 차감 (locked에서 차감됨)
-            // 매수자: SOL 증가 (available에 추가됨)
-            
-            // [비활성화] Java 서버가 잔고의 Source of Truth가 되므로 엔진에서 DB 업데이트 비활성화
-            // 잔고 업데이트는 Kafka 이벤트를 통해 Java Consumer가 처리합니다.
-            /*
-            if let Some(db_sender) = &self.db_sender {
-                // 매수자 USDT 잔고 업데이트 (locked에서 차감됨)
-                let _ = db_sender.send(DbCommand::UpdateBalance {
-                    user_id: match_result.buyer_id,
-                    mint: match_result.quote_mint.clone(),
-                    available_delta: None, // available은 변경 없음 (locked에서 차감)
-                    locked_delta: Some(-total_value), // locked에서 차감
-                });
-                
-                // 매도자 USDT 잔고 업데이트 (available에 추가됨)
-                let _ = db_sender.send(DbCommand::UpdateBalance {
-                    user_id: match_result.seller_id,
-                    mint: match_result.quote_mint.clone(),
-                    available_delta: Some(total_value), // available에 추가
-                    locked_delta: None, // locked는 변경 없음
-                });
-                
-                // 매도자 기준 자산 잔고 업데이트 (locked에서 차감됨)
-                let _ = db_sender.send(DbCommand::UpdateBalance {
-                    user_id: match_result.seller_id,
-                    mint: match_result.base_mint.clone(),
-                    available_delta: None, // available은 변경 없음 (locked에서 차감)
-                    locked_delta: Some(-match_result.amount), // locked에서 차감
-                });
-                
-                // 매수자 기준 자산 잔고 업데이트 (available에 추가됨)
-                let _ = db_sender.send(DbCommand::UpdateBalance {
-                    user_id: match_result.buyer_id,
-                    mint: match_result.base_mint.clone(),
-                    available_delta: Some(match_result.amount), // available에 추가
-                    locked_delta: None, // locked는 변경 없음
-                });
-            }
-            */
-        }
-        
-        // WAL에도 기록 (복구용) - 주석 처리됨 (WAL 비활성화)
-        // WAL 로그 쓰기 비활성화 (디스크 공간 부족 문제로 인해 임시 비활성화)
-        /*
-        if let Some(sender) = &self.wal_sender {
-            // 매수자 USDT 잔고
-            if let Some(buyer_usdt) = self.balance_cache.get_balance(match_result.buyer_id, &match_result.quote_mint) {
-                sender.send(WalEntry::BalanceUpdated {
-                    user_id: match_result.buyer_id,
-                    mint: match_result.quote_mint.clone(),
-                    available: buyer_usdt.available.to_string(),
-                    locked: buyer_usdt.locked.to_string(),
-                    timestamp: Utc::now().timestamp_millis(),
-                })?;
-            }
-            
-            // 매수자 기준 자산 잔고
-            if let Some(buyer_base) = self.balance_cache.get_balance(match_result.buyer_id, &match_result.base_mint) {
-                sender.send(WalEntry::BalanceUpdated {
-                    user_id: match_result.buyer_id,
-                    mint: match_result.base_mint.clone(),
-                    available: buyer_base.available.to_string(),
-                    locked: buyer_base.locked.to_string(),
-                    timestamp: Utc::now().timestamp_millis(),
-                })?;
-            }
-            
-            // 매도자 USDT 잔고
-            if let Some(seller_usdt) = self.balance_cache.get_balance(match_result.seller_id, &match_result.quote_mint) {
-                sender.send(WalEntry::BalanceUpdated {
-                    user_id: match_result.seller_id,
-                    mint: match_result.quote_mint.clone(),
-                    available: seller_usdt.available.to_string(),
-                    locked: seller_usdt.locked.to_string(),
-                    timestamp: Utc::now().timestamp_millis(),
-                })?;
-            }
-            
-            // 매도자 기준 자산 잔고
-            if let Some(seller_base) = self.balance_cache.get_balance(match_result.seller_id, &match_result.base_mint) {
-                sender.send(WalEntry::BalanceUpdated {
-                    user_id: match_result.seller_id,
-                    mint: match_result.base_mint.clone(),
-                    available: seller_base.available.to_string(),
-                    locked: seller_base.locked.to_string(),
-                    timestamp: Utc::now().timestamp_millis(),
-                })?;
+                // 기존 발행 동작을 유지한다. 채널 전송은 DB 커밋 확인이 아니다.
+                // 여기서 이미 반영한 캐시를 부분 롤백하거나 새 DB 성공 보장을 만들지 않는다.
+                if let Err(error) = sender.send(command) {
+                    eprintln!("[Executor] 캐시 반영 후 체결 DB 명령 전달 실패: {error}");
+                }
             }
         }
-        */
-        
-        // ============================================
-        // Step 4: 실행 결과 반환
-        // ============================================
-        Ok(ExecutionResult {
-            match_result: match_result.clone(),
-            success: true,
-            error: None,
-        })
+        Ok(ExecutionResult { match_result: match_result.clone(), success: true, error: None })
     }
-    
+
     /// 주문 생성 시 잔고 잠금
     /// 
     /// # Arguments
