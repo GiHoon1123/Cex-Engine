@@ -41,7 +41,7 @@ pub(super) async fn load_balances(pool: &PgPool) -> Result<BalanceCache> {
     // 상태도 복구 판단 없이 빠뜨리지 않는다. NULL 역시 종료로 간주하지 않는다.
     let unresolved_order: Option<(i64, Option<String>)> = sqlx::query_as(
         "SELECT id, status FROM orders
-         WHERE status IS NULL OR status NOT IN ('filled', 'cancelled', 'rejected')
+         WHERE status IS NULL OR status NOT IN ('filled', 'cancelled', 'rejected', 'expired')
          ORDER BY id LIMIT 1",
     )
     .fetch_optional(&mut *transaction)

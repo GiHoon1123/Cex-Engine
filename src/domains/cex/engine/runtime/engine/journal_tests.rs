@@ -807,3 +807,106 @@ fn journal_fee_amount_mismatch_blocks_recovery_even_with_valid_checksum() -> Res
     assert!(store.recover().is_err());
     Ok(())
 }
+
+#[tokio::test]
+async fn journal_ioc_zero_fill_and_partial_completion_replay_without_second_refund() -> Result<()> {
+    let directory = Directory::new();
+    let store = initialize(&directory.0);
+    let mut engine = HighPerformanceEngine::new_bench();
+    attach(&mut engine, store, |_, _| Ok(()));
+    let mut empty = order(1, 1, true, 1);
+    empty.order_side = "market".into();
+    empty.price = None;
+    empty.amount = Decimal::ZERO;
+    empty.remaining_amount = Decimal::ZERO;
+    empty.quote_amount = Some(Decimal::from(200));
+    empty.remaining_quote_amount = empty.quote_amount;
+    engine.handle().submit_order(empty.clone()).await?;
+    engine.handle().submit_order(order(2, 2, false, 1)).await?;
+    let mut partial = empty.clone();
+    partial.id = 3;
+    engine.handle().submit_order(partial.clone()).await?;
+    engine.stop().await?;
+    let store = Store::open(&directory.0)?;
+    let first = serde_json::to_value(store.read(1)?)?;
+    assert_eq!(
+        first["outcome"]["Applied"]["Submitted"]["completion"]["refund_amount"],
+        "200"
+    );
+    let record = serde_json::to_value(store.read(3)?)?;
+    assert_eq!(
+        record["outcome"]["Applied"]["Submitted"]["completion"]["status"],
+        "expired"
+    );
+    let mut restarted = HighPerformanceEngine::new_bench();
+    attach(&mut restarted, store, |_, _| Ok(()));
+    restarted.handle().submit_order(empty).await?;
+    restarted.handle().submit_order(partial).await?;
+    assert_eq!(
+        restarted.handle().get_balance(1, "USDT").await?,
+        (Decimal::from(900), Decimal::ZERO)
+    );
+    restarted.stop().await?;
+    Ok(())
+}
+
+#[test]
+fn journal_ioc_completion_failure_keeps_cursor_and_identical_retry() -> Result<()> {
+    let directory = Directory::new();
+    let mut store = initialize(&directory.0);
+    let mut state = seeded();
+    let mut market = order(1, 1, true, 1);
+    market.order_side = "market".into();
+    market.price = None;
+    market.amount = Decimal::ZERO;
+    market.remaining_amount = Decimal::ZERO;
+    market.quote_amount = Some(Decimal::from(200));
+    market.remaining_quote_amount = market.quote_amount;
+    let item = pending(&mut state, Command::Submit(market));
+    store.append(&[item], &mut 0)?;
+    let (_, id) = store.recover()?;
+    let mut attempts = Vec::new();
+    for fail in [true, false] {
+        let progress = Arc::new(Progress::new(1, store.delivered()?));
+        progress.journal_done.store(true, Ordering::Release);
+        let (ready, _) = tokio::sync::oneshot::channel();
+        let result = output::run_store(
+            store.delivery_connection()?,
+            id.clone(),
+            progress,
+            Arc::new(AtomicBool::new(false)),
+            ready,
+            |batch, position| {
+                attempts.push((position.sequence, serde_json::to_string(batch).unwrap()));
+                if fail {
+                    Err(output::DeliveryError {
+                        next_event: 0,
+                        reason: "시장가 종료 전달 실패 주입".into(),
+                    })
+                } else {
+                    Ok(())
+                }
+            },
+            |_| Ok(()),
+        );
+        assert_eq!(result.is_err(), fail);
+        assert_eq!(store.delivered()?, if fail { 0 } else { 1 });
+    }
+    assert_eq!(attempts[0], attempts[1]);
+    Ok(())
+}
+
+#[test]
+fn journal_ioc_contract_rejects_previous_fee_version_without_mutation() -> Result<()> {
+    let directory = Directory::new();
+    let store = initialize(&directory.0);
+    store.connection.execute_batch("PRAGMA user_version=2")?;
+    drop(store);
+    assert!(Store::open(&directory.0).is_err());
+    let connection = rusqlite::Connection::open(directory.0.join("journal.sqlite3"))?;
+    assert_eq!(
+        connection.query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))?,
+        2
+    );
+    Ok(())
+}

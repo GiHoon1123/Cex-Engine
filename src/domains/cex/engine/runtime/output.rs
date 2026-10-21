@@ -1,8 +1,10 @@
 //! 확정 결과를 순서대로 전달하는 출력 워커다. 거래 상태를 읽거나 수정하지 않는다.
-use super::submission::AppliedSubmission;
+use super::submission::{AppliedSubmission, MarketCompletion};
 use crate::{
     domains::cex::engine::types::{MatchResult, OrderEntry},
-    shared::kafka::{KafkaProducer, OrderCancelledEvent, TradeExecutedEvent},
+    shared::kafka::{
+        KafkaProducer, MarketOrderCompletedEvent, OrderCancelledEvent, TradeExecutedEvent,
+    },
 };
 use anyhow::Result;
 use chrono::Utc;
@@ -19,6 +21,7 @@ pub(super) enum OutputBatch {
     Submitted {
         order_id: u64,
         trades: Vec<TradeOutput>,
+        completion: Option<MarketCompletion>,
     },
     Cancelled(OrderEntry),
     Rejected {
@@ -60,7 +63,11 @@ impl OutputBatch {
                 }
             })
             .collect();
-        Self::Submitted { order_id, trades }
+        Self::Submitted {
+            order_id,
+            trades,
+            completion: applied.completion,
+        }
     }
 }
 
@@ -85,7 +92,9 @@ pub(super) fn deliver(
     runtime.block_on(async {
         match batch {
             OutputBatch::Rejected { .. } => {}
-            OutputBatch::Submitted { trades, .. } => {
+            OutputBatch::Submitted {
+                trades, completion, ..
+            } => {
                 for (index, output) in trades.iter().enumerate() {
                     let t = &output.trade;
                     let event = TradeExecutedEvent {
@@ -111,6 +120,29 @@ pub(super) fn deliver(
                         .await
                         .map_err(|error| DeliveryError {
                             next_event: index,
+                            reason: format!("{error:#}"),
+                        })?;
+                }
+                if let Some(completion) = completion {
+                    // 체결 뒤에 같은 파티션으로 전송한다. 마지막 이벤트 전 실패하면
+                    // 전달 커서를 남겨 재시작에서 체결·종료 모두 같은 식별자로 재전달한다.
+                    let event = MarketOrderCompletedEvent {
+                        event_id: format!(
+                            "{}:{}:{}",
+                            position.engine_id,
+                            position.sequence,
+                            trades.len()
+                        ),
+                        engine_id: position.engine_id.into(),
+                        event_type: "market_order_completed",
+                        timestamp: position.timestamp,
+                        result: completion,
+                    };
+                    producer
+                        .publish_market_order_completed(&event)
+                        .await
+                        .map_err(|error| DeliveryError {
+                            next_event: trades.len(),
                             reason: format!("{error:#}"),
                         })?;
                 }
@@ -217,6 +249,7 @@ pub(super) fn run_store(
             if let super::journal::Outcome::Applied(Some(OutputBatch::Submitted {
                 order_id,
                 trades,
+                ..
             })) = &record.outcome
             {
                 eprintln!(

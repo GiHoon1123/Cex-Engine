@@ -9,3 +9,5 @@ pub mod events;
 
 pub use producer::KafkaProducer;
 pub use events::{TradeExecutedEvent, OrderCancelledEvent};
+
+pub(crate) use events::MarketOrderCompletedEvent;

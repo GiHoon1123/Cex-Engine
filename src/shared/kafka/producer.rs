@@ -12,7 +12,7 @@
 // - 초기 구성은 토픽마다 파티션 1개
 // - 동일 엔진의 체결·취소는 같은 엔진 식별자를 키로 사용
 // - 한 코어의 결과는 같은 파티션에서 순서대로 소비
-// - 정산용: trade_executed, order_cancelled만 발행
+// - 정산용: trade_executed, order_cancelled, market_order_completed 발행
 //
 // 특징:
 // - 비동기 발행 (논블로킹)
@@ -100,6 +100,13 @@ impl KafkaProducer {
         // 주문 소유자가 달라도 같은 엔진 결과의 순서는 바꾸지 않는다.
         let partition_key = event.engine_id.clone();
         self.publish(topic, Some(&partition_key), event).await
+    }
+
+    /// 같은 엔진 키를 사용해 개별 체결 뒤의 시장가 종료·예약 반환 순서를 보존한다.
+    pub(crate) async fn publish_market_order_completed(
+        &self, event: &crate::shared::kafka::events::MarketOrderCompletedEvent<'_>,
+    ) -> Result<()> {
+        self.publish("order-events", Some(&event.engine_id), event).await
     }
 
     /// 호가는 금융 정산 토픽과 분리한다. 같은 엔진의 공개 순서는 한 파티션으로

@@ -10,11 +10,30 @@ use crate::domains::cex::engine::{
 };
 use anyhow::Result;
 use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub(crate) struct AppliedSubmission {
     pub order_id: u64,
     pub matches: Vec<MatchResult>,
+    pub completion: Option<MarketCompletion>,
+}
+
+/// 시장가 한 명령의 최종 결과다. 체결이 없어도 예약 반환과 종료를 플랫폼에 전달한다.
+/// 실행 캐시를 다시 읽지 않고 같은 후보 계산의 합계·반환액을 자체 저널에 함께 보존한다.
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct MarketCompletion {
+    pub order_id: u64,
+    pub user_id: u64,
+    pub order_type: String,
+    pub base_mint: String,
+    pub quote_mint: String,
+    pub filled_amount: Decimal,
+    pub filled_quote_amount: Decimal,
+    pub reserved_amount: Decimal,
+    pub refund_amount: Decimal,
+    pub trade_count: usize,
+    pub status: String,
 }
 
 /// 호출자는 주문장과 실행 캐시를 독점 대여한다. 실행 중에는 단일 워커만 소유한다.
@@ -78,6 +97,26 @@ pub(crate) fn apply(
     if refund > Decimal::ZERO {
         prepared.unlock_balance(order.user_id, refund_mint, refund)?;
     }
+    // 원본 매수 예산 또는 매도 수량이 모두 사용됐을 때만 전량 체결이다.
+    // 최소 단위 때문에 쓸 수 없는 잔여 예산도 반환하고 만료로 구분한다.
+    let completion = (order.order_side == "market").then(|| MarketCompletion {
+        order_id: order.id,
+        user_id: order.user_id,
+        order_type: order.order_type.clone(),
+        base_mint: order.base_mint.clone(),
+        quote_mint: order.quote_mint.clone(),
+        filled_amount: plan.total_amount,
+        filled_quote_amount: plan.total_quote,
+        reserved_amount: reserved,
+        refund_amount: refund,
+        trade_count: plan.matches.len(),
+        status: if refund.is_zero() {
+            "filled"
+        } else {
+            "expired"
+        }
+        .into(),
+    });
     // 이 아래에는 금액 오류 반환·디비 접근·채널 전송이 없다. 상태를 독점 대여한 호출자만
     // 완성된 다음 상태를 게시한다. OOM·프로세스 종료의 내구성은 보장하지 않는다.
     plan.commit_book(
@@ -89,5 +128,6 @@ pub(crate) fn apply(
     Ok(AppliedSubmission {
         order_id: plan.order.id,
         matches: plan.matches,
+        completion,
     })
 }

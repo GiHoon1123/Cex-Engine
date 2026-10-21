@@ -225,7 +225,7 @@ async fn startup_propagates_database_inspection_failure(pool: PgPool) -> Result<
 #[sqlx::test(migrations = false)]
 async fn startup_preserves_exact_balances_with_terminal_order_history(pool: PgPool) -> Result<()> {
     create_schema(&pool).await?;
-    pool.execute("INSERT INTO orders VALUES (1, 'filled'), (2, 'cancelled'), (3, 'rejected')")
+    pool.execute("INSERT INTO orders VALUES (1, 'filled'), (2, 'cancelled'), (3, 'rejected'), (4, 'expired')")
         .await?;
     pool.execute(
         "INSERT INTO user_balances (id, user_id, mint_address, available, locked)
@@ -249,7 +249,7 @@ async fn startup_preserves_exact_balances_with_terminal_order_history(pool: PgPo
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM orders")
         .fetch_one(&pool)
         .await?;
-    assert_eq!(count, 3, "종료 주문 기록을 삭제하면 안 된다");
+    assert_eq!(count, 4, "만료를 포함한 종료 주문 기록을 삭제하면 안 된다");
     Ok(())
 }
 

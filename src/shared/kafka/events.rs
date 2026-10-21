@@ -10,7 +10,7 @@
 // 중요: 단일 토픽으로 통합하여 순서 보장
 // - 토픽: order-events (파티션 1개)
 // - 파티션 키: 엔진 식별자 (한 코어의 결과는 같은 파티션으로)
-// - 정산용: trade_executed, order_cancelled만 발행
+// - 정산용: trade_executed, order_cancelled, market_order_completed 발행
 // =====================================================
 
 use chrono::{DateTime, Utc};
@@ -66,7 +66,6 @@ pub struct TradeExecutedEvent {
     pub seller_fee_rate: Decimal,
     pub buyer_fee: Decimal,
     pub seller_fee: Decimal,
-
 }
 
 /// 주문 취소 이벤트
@@ -98,4 +97,15 @@ pub struct OrderCancelledEvent {
 
     /// 취소 시간
     pub timestamp: DateTime<Utc>,
+}
+
+/// 체결 목록 다음에 보내는 시장가 종료다. 영속 결과를 빌려 직렬화하며 금융 결과를 다시 계산하지 않는다.
+#[derive(Debug, Serialize)]
+pub(crate) struct MarketOrderCompletedEvent<'a> {
+    pub event_id: String,
+    pub engine_id: String,
+    pub event_type: &'static str,
+    pub timestamp: DateTime<Utc>,
+    #[serde(flatten)]
+    pub result: &'a crate::domains::cex::engine::runtime::MarketCompletion,
 }

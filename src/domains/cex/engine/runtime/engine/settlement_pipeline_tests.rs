@@ -569,19 +569,37 @@ fn settlement_fees_follow_each_order_and_preserve_prior_deductions() -> Result<(
         assert_eq!(trades[0].seller_fee_rate, "0.002".parse()?);
     }
     let cache = engine.state.as_ref().unwrap().executor.balance_cache();
-    assert_eq!(cache.get_balance(101, "SOL").unwrap().available, "1.998".parse()?);
-    assert_eq!(cache.get_balance(102, "USDT").unwrap().available, "199.6".parse()?);
-    assert_eq!(cache.get_balance(101, "USDT").unwrap().available, Decimal::from(800));
+    assert_eq!(
+        cache.get_balance(101, "SOL").unwrap().available,
+        "1.998".parse()?
+    );
+    assert_eq!(
+        cache.get_balance(102, "USDT").unwrap().available,
+        "199.6".parse()?
+    );
+    assert_eq!(
+        cache.get_balance(101, "USDT").unwrap().available,
+        Decimal::from(800)
+    );
     // 고객 수취분과 자체 저널의 수수료를 자산별로 더하면 원래 이동량이 된다.
-    assert_eq!(super::super::super::amount::add("1.998".parse()?, "0.002".parse()?)?, Decimal::from(2));
+    assert_eq!(
+        super::super::super::amount::add("1.998".parse()?, "0.002".parse()?)?,
+        Decimal::from(2)
+    );
     Ok(())
 }
 
 #[test]
 fn settlement_fee_rounding_and_invalid_rates_are_explicit() -> Result<()> {
     use crate::domains::cex::engine::amount::fee;
-    assert_eq!(fee("0.000000001".parse()?, "0.001".parse()?)?, Decimal::ZERO);
-    assert_eq!(fee("1.234567891".parse()?, "0.001".parse()?)?, "0.001234567".parse()?);
+    assert_eq!(
+        fee("0.000000001".parse()?, "0.001".parse()?)?,
+        Decimal::ZERO
+    );
+    assert_eq!(
+        fee("1.234567891".parse()?, "0.001".parse()?)?,
+        "0.001234567".parse()?
+    );
     for invalid in ["-0.001", "1", "0.0000001"] {
         assert!(fee(Decimal::ONE, invalid.parse()?).is_err());
     }
@@ -599,11 +617,184 @@ fn settlement_invalid_fee_keeps_book_and_accounts_unchanged() -> Result<()> {
     buy.fee_rate = Decimal::ONE;
     assert!(engine.bench_submit_direct(buy.clone()).is_err());
     let state = engine.state.as_ref().unwrap();
-    assert_eq!(state.executor.balance_cache().get_balance(101, "USDT").unwrap().available, Decimal::from(200));
-    assert_eq!(state.orderbooks.values().next().unwrap().sell_orders.total_orders(), 1);
+    assert_eq!(
+        state
+            .executor
+            .balance_cache()
+            .get_balance(101, "USDT")
+            .unwrap()
+            .available,
+        Decimal::from(200)
+    );
+    assert_eq!(
+        state
+            .orderbooks
+            .values()
+            .next()
+            .unwrap()
+            .sell_orders
+            .total_orders(),
+        1
+    );
     // 별도 수수료 잔액 없이 정확한 매수 대금만 가진 사용자도 거래할 수 있다.
     buy.fee_rate = "0.001".parse()?;
     engine.bench_submit_direct(buy)?;
-    assert_eq!(engine.state.as_ref().unwrap().executor.balance_cache().get_balance(101, "USDT").unwrap().available, Decimal::ZERO);
+    assert_eq!(
+        engine
+            .state
+            .as_ref()
+            .unwrap()
+            .executor
+            .balance_cache()
+            .get_balance(101, "USDT")
+            .unwrap()
+            .available,
+        Decimal::ZERO
+    );
+    Ok(())
+}
+
+/// 시장가는 체결량과 무관하게 종료 결과가 있고, 반환액은 같은 후보 정산에서 계산해야 한다.
+#[test]
+fn settlement_ioc_completes_full_partial_and_empty_buy_and_sell() -> Result<()> {
+    for buy in [true, false] {
+        for liquidity in [0, 1, 2] {
+            let mut engine = HighPerformanceEngine::new_bench();
+            engine.bench_set_balance(101, "USDT", Decimal::from(1000), Decimal::ZERO);
+            engine.bench_set_balance(102, "SOL", Decimal::from(10), Decimal::ZERO);
+            if liquidity > 0 {
+                let mut maker = order(
+                    2,
+                    if buy { 102 } else { 101 },
+                    if buy { "sell" } else { "buy" },
+                    false,
+                );
+                maker.amount = Decimal::from(liquidity);
+                maker.remaining_amount = maker.amount;
+                engine.bench_submit_direct(maker)?;
+            }
+            let state = engine.state.as_mut().unwrap();
+            let applied = super::super::threads::process_submit_order(
+                order(
+                    1,
+                    if buy { 101 } else { 102 },
+                    if buy { "buy" } else { "sell" },
+                    true,
+                ),
+                &mut state.orderbooks,
+                &state.matcher,
+                &mut state.executor,
+            )?;
+            let done = applied.completion.unwrap();
+            assert_eq!(done.filled_amount, Decimal::from(liquidity));
+            assert_eq!(done.filled_quote_amount, Decimal::from(liquidity * 100));
+            assert_eq!(
+                done.refund_amount,
+                Decimal::from((2 - liquidity) * if buy { 100 } else { 1 })
+            );
+            assert_eq!(
+                done.status,
+                if liquidity == 2 { "filled" } else { "expired" }
+            );
+            assert_eq!(done.trade_count, if liquidity == 0 { 0 } else { 1 });
+            let account = state
+                .executor
+                .balance_cache()
+                .get_balance(
+                    if buy { 101 } else { 102 },
+                    if buy { "USDT" } else { "SOL" },
+                )
+                .unwrap();
+            assert_eq!(account.locked, Decimal::ZERO);
+            assert_eq!(
+                account.available,
+                Decimal::from(if buy {
+                    1000 - liquidity * 100
+                } else {
+                    10 - liquidity
+                })
+            );
+            let book = state.orderbooks.values().next().unwrap();
+            assert_eq!(
+                book.buy_orders.total_orders() + book.sell_orders.total_orders(),
+                0
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn settlement_ioc_refunds_unspendable_budget_dust() -> Result<()> {
+    let mut engine = HighPerformanceEngine::new_bench();
+    engine.bench_set_balance(101, "USDT", Decimal::from(1000), Decimal::ZERO);
+    engine.bench_set_balance(102, "SOL", Decimal::from(10), Decimal::ZERO);
+    let mut maker = order(2, 102, "sell", false);
+    maker.price = Some(Decimal::from(3));
+    engine.bench_submit_direct(maker)?;
+    let mut buy = order(1, 101, "buy", true);
+    buy.quote_amount = Some(Decimal::ONE);
+    buy.remaining_quote_amount = buy.quote_amount;
+    let state = engine.state.as_mut().unwrap();
+    let done = super::super::threads::process_submit_order(
+        buy,
+        &mut state.orderbooks,
+        &state.matcher,
+        &mut state.executor,
+    )?
+    .completion
+    .unwrap();
+    assert_eq!(done.filled_amount, "0.333333333".parse()?);
+    assert_eq!(done.filled_quote_amount, "0.999999999".parse()?);
+    assert_eq!(done.refund_amount, "0.000000001".parse()?);
+    assert_eq!(done.status, "expired");
+    assert_eq!(
+        state
+            .executor
+            .balance_cache()
+            .get_balance(101, "USDT")
+            .unwrap()
+            .locked,
+        Decimal::ZERO
+    );
+    Ok(())
+}
+
+#[test]
+fn settlement_ioc_self_only_liquidity_returns_entire_reservation() -> Result<()> {
+    let mut engine = HighPerformanceEngine::new_bench();
+    engine.bench_set_balance(101, "USDT", Decimal::from(1000), Decimal::ZERO);
+    engine.bench_set_balance(101, "SOL", Decimal::from(10), Decimal::ZERO);
+    engine.bench_submit_direct(order(2, 101, "sell", false))?;
+    let state = engine.state.as_mut().unwrap();
+    let applied = super::super::threads::process_submit_order(
+        order(1, 101, "buy", true),
+        &mut state.orderbooks,
+        &state.matcher,
+        &mut state.executor,
+    )?;
+    let done = applied.completion.unwrap();
+    assert_eq!(done.trade_count, 0);
+    assert_eq!(done.refund_amount, Decimal::from(200));
+    assert_eq!(done.status, "expired");
+    assert_eq!(
+        state
+            .executor
+            .balance_cache()
+            .get_balance(101, "USDT")
+            .unwrap()
+            .available,
+        Decimal::from(1000)
+    );
+    assert_eq!(
+        state
+            .orderbooks
+            .values()
+            .next()
+            .unwrap()
+            .sell_orders
+            .total_orders(),
+        1
+    );
     Ok(())
 }
