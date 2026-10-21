@@ -160,7 +160,7 @@ try:
     with tempfile.TemporaryDirectory(prefix="cex-receipt-wal-") as wal:
         env = os.environ.copy()
         env.update({"DATABASE_HOST": database_address, "KAFKA_BOOTSTRAP_SERVERS": "127.0.0.1:1",
-                    "ENGINE_HTTP_ADDRESS": f"127.0.0.1:{engine_port}", "WAL_DIR": wal})
+                    "ENGINE_HTTP_ADDRESS": f"127.0.0.1:{engine_port}", "ENGINE_DATA_DIR": wal})
         binary = str(ROOT / "Cex-Engine/target/debug/cex-engine")
         engine, engine_log = start([binary], "durable-acceptance-engine.log", env)
         ready(engine, f"http://127.0.0.1:{engine_port}/api/health", engine_log)
@@ -209,11 +209,12 @@ try:
                                     "receipts": 2, "available": "700", "locked": "300"})
         stop(engine)
         restarted, restart_log = start([binary], "durable-acceptance-restart.log", env)
-        restarted.wait(timeout=20)
-        assert restarted.returncode != 0 and "durable receipt" in restart_log.read_text()
-        assert "[Main] Server running" not in restart_log.read_text()
-        evidence["checks"].append({"case": "restart_blocks_unresolved_receipt", "http_not_started": True,
-                                    "exit_code": restarted.returncode})
+        ready(restarted, f"http://127.0.0.1:{engine_port}/api/health", restart_log)
+        replayed, receipt = http(f"http://127.0.0.1:{engine_port}/api/cex/orders", engine_payload)
+        assert replayed == 200 and receipt == forwarded[0][1]
+        assert "output_completed" not in restart_log.read_text()
+        evidence["checks"].append({"case": "restart_replays_wal_and_deduplicates", "health": 200,
+                                    "duplicate_http": replayed, "duplicate_execution": False})
 finally:
     for process in reversed(processes):
         stop(process)

@@ -6,6 +6,7 @@ import shutil
 import socket
 import subprocess
 import time
+import tempfile
 from decimal import Decimal
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -18,6 +19,7 @@ prefix = "cex-output-" + uuid4().hex[:10]
 pg, kafka = prefix + "-pg", prefix + "-kafka"
 processes = []
 evidence = {"containers": [pg, kafka], "checks": []}
+journal_directory = tempfile.TemporaryDirectory(prefix="cex-process-journal-")
 
 
 def free_port():
@@ -104,7 +106,7 @@ try:
         "--create", "--topic", "order-events", "--partitions", "1", "--replication-factor", "1", stdout=subprocess.DEVNULL)
     env = os.environ.copy()
     env.update(DATABASE_HOST=database_address, ENGINE_HTTP_ADDRESS=f"127.0.0.1:{engine_port}",
-        KAFKA_BOOTSTRAP_SERVERS=f"127.0.0.1:{kafka_port}")
+        KAFKA_BOOTSTRAP_SERVERS=f"127.0.0.1:{kafka_port}", ENGINE_DATA_DIR=journal_directory.name)
     engine_log = ARTIFACTS / "engine-output-process.log"
     with engine_log.open("w") as log:
         engine = subprocess.Popen([str(ROOT / "target/debug/cex-engine")], cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
@@ -115,8 +117,25 @@ try:
     until(lambda: "output_completed order_id=1 " in engine_log.read_text())
     submit(2, 1, "buy", 1)
     until(lambda: "output_completed order_id=2 " in engine_log.read_text())
+    # 저장된 체결은 플랫폼 테이블이 아직 pending이어도 자체 저널로 복원한다.
+    # 디비 잔액도 의도적으로 바꿔 복구가 그 값에 기대지 않는지 확인한다.
+    engine.kill()
+    engine.wait(timeout=5)
+    sql("UPDATE user_balances SET available=0,locked=99")
+    docker("pause", pg, stdout=subprocess.DEVNULL)
+    with engine_log.open("a") as log:
+        engine = subprocess.Popen([str(ROOT / "target/debug/cex-engine")], cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
+        processes.append(engine)
+    until(lambda: engine.poll() is not None or http("/api/health")[0] == 200)
+    assert engine.poll() is None, "WAL recovery failed"
+    docker("unpause", pg, stdout=subprocess.DEVNULL)
+    duplicate, _ = http("/api/cex/orders", {"order_id":2,"user_id":1,"order_type":"buy","order_side":"limit",
+        "base_mint":"SOL","quote_mint":"USDT","price":"100","amount":"1"})
+    assert duplicate == 200
     status, cancelled = http("/api/cex/orders/1?user_id=2", method="DELETE")
     assert status == 200 and cancelled["status"] == "cancelled", (status, cancelled)
+    assert Decimal(str(cancelled["filled_amount"])) == 1 and Decimal(str(cancelled["amount"])) == 3
+    evidence["checks"].append({"case":"sigkill_recovery_preserves_partial_order_and_deduplication","duplicate_http":200,"remaining":2})
     records = ARTIFACTS / "engine-output-kafka-records.log"
     with records.open("w") as output:
         consumer = subprocess.Popen([DOCKER, "exec", kafka, "/opt/kafka/bin/kafka-console-consumer.sh",
@@ -134,7 +153,7 @@ try:
     evidence["checks"].append({"case": "ordered_trade_and_cancel", "events": len(events)})
     assert sql("SELECT count(*) FROM orders WHERE status='pending' AND filled_amount=0") == "2"
     evidence["checks"].append({"case": "engine_does_not_update_platform_orders", "unchanged_orders": 2})
-    docker("stop", "--time", "5", kafka, stdout=subprocess.DEVNULL)
+    docker("pause", kafka, stdout=subprocess.DEVNULL)
     submit(3, 2, "sell", 1)
     until(lambda: "output_completed order_id=3 " in engine_log.read_text())
     submit(4, 1, "buy", 1)
@@ -144,6 +163,36 @@ try:
     assert "output_delivery_failed" in engine_log.read_text()
     assert "output_completed order_id=4 " not in engine_log.read_text()
     evidence["checks"].append({"case": "broker_failure_closes_engine", "health": 503, "observed_seconds": failure_seconds})
+    # 브로커 장애 중에도 HTTP 성공한 결과는 저널에 남아 있어야 한다.
+    engine.kill()
+    engine.wait(timeout=5)
+    docker("unpause", kafka, stdout=subprocess.DEVNULL)
+    with engine_log.open("a") as log:
+        engine = subprocess.Popen([str(ROOT / "target/debug/cex-engine")], cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
+        processes.append(engine)
+    until(lambda: engine.poll() is not None or http("/api/health")[0] == 200,45)
+    assert engine.poll() is None
+    until(lambda: "output_completed order_id=4 " in engine_log.read_text())
+    recovered_records = ARTIFACTS / "engine-wal-recovered-records.log"
+    with recovered_records.open("w") as output:
+        consumer = subprocess.Popen([DOCKER,"exec",kafka,"/opt/kafka/bin/kafka-console-consumer.sh",
+            "--bootstrap-server","localhost:29092","--topic","order-events","--from-beginning",
+            "--max-messages","3","--timeout-ms","15000"],stdout=output,stderr=subprocess.DEVNULL)
+        processes.append(consumer)
+    consumer.wait(timeout=25)
+    assert consumer.returncode == 0
+    recovered_events = [json.loads(line) for line in recovered_records.read_text().splitlines() if line.startswith("{")]
+    assert [event["event_type"] for event in recovered_events] == ["trade_executed","order_cancelled","trade_executed"]
+    assert recovered_events[0]["event_id"] == events[0]["event_id"]
+    assert len({event["event_id"] for event in recovered_events}) == 3
+    assert recovered_events[-1]["buy_order_id"] == 4
+    assert Decimal(str(recovered_events[-1]["buyer_quote_available"])) == 800
+    evidence["checks"].append({"case":"durable_unpublished_trade_recovered_after_broker_failure","events":3,"buyer_quote_available":800})
+    # 정상 종료도 큐와 저널을 닫아 성공으로 끝나는지 확인한다.
+    engine.terminate()
+    engine.wait(timeout=15)
+    assert engine.returncode == 0, "graceful shutdown failed"
+    evidence["checks"].append({"case":"sigterm_drains_journal_and_output","exit":0})
     print(json.dumps(evidence, indent=2), flush=True)
 finally:
     for process in reversed(processes):
@@ -156,5 +205,6 @@ finally:
                 process.wait(timeout=5)
     for container in [kafka, pg]:
         subprocess.run([DOCKER, "rm", "--force", container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    journal_directory.cleanup()
     evidence["cleanup_completed"] = True
     (ARTIFACTS / "engine-output-process.json").write_text(json.dumps(evidence, indent=2))

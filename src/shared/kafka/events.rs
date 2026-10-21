@@ -2,30 +2,34 @@
 // Kafka 이벤트 구조체
 // =====================================================
 // 역할: Kafka로 발행할 이벤트의 구조 정의
-// 
+//
 // 이벤트 타입:
 // 1. TradeExecutedEvent - 체결 이벤트
 // 2. OrderCancelledEvent - 취소 이벤트
-// 
+//
 // 중요: 단일 토픽으로 통합하여 순서 보장
 // - 토픽: order-events (파티션 12개)
-// - 파티션 키: user_id (같은 유저의 이벤트는 같은 파티션으로)
+// - 파티션 키: 엔진 식별자 (한 코어의 결과는 같은 파티션으로)
 // - 정산용: trade_executed, order_cancelled만 발행
 // =====================================================
 
-use serde::Serialize;
-use rust_decimal::Decimal;
 use chrono::{DateTime, Utc};
+use rust_decimal::Decimal;
+use serde::Serialize;
 
 /// 체결 이벤트
 /// Trade Executed Event
-/// 
+///
 /// Kafka로 발행되는 체결 이벤트
 /// Java Consumer가 이를 받아서 DB에 저장합니다.
-/// 
+///
 /// Note: trade_id는 Java DB에서 auto increment로 생성되므로 Rust에서 보내지 않음
 #[derive(Debug, Clone, Serialize)]
 pub struct TradeExecutedEvent {
+    /// 재시작·재전송에도 변하지 않는 저널 기반 이벤트 식별자다.
+    pub event_id: String,
+    /// 단일 코어의 모든 결과를 같은 파티션으로 보내는 엔진 식별자다.
+    pub engine_id: String,
     /// 이벤트 타입 ("trade_executed")
     #[serde(rename = "event_type")]
     pub event_type: String,
@@ -56,24 +60,23 @@ pub struct TradeExecutedEvent {
 
     /// 체결 시간
     pub timestamp: DateTime<Utc>,
-    
+
     // ============================================
     // 체결 후 잔고 스냅샷 (수수료 적용 전)
     // 엔진 스레드에서 체결 직후 조회하여 전송
     // ============================================
-    
     /// 매수자 base_mint 잔고 (체결 후)
     pub buyer_base_available: Decimal,
     pub buyer_base_locked: Decimal,
-    
+
     /// 매수자 quote_mint 잔고 (체결 후)
     pub buyer_quote_available: Decimal,
     pub buyer_quote_locked: Decimal,
-    
+
     /// 매도자 base_mint 잔고 (체결 후)
     pub seller_base_available: Decimal,
     pub seller_base_locked: Decimal,
-    
+
     /// 매도자 quote_mint 잔고 (체결 후)
     pub seller_quote_available: Decimal,
     pub seller_quote_locked: Decimal,
@@ -81,11 +84,15 @@ pub struct TradeExecutedEvent {
 
 /// 주문 취소 이벤트
 /// Order Cancelled Event
-/// 
+///
 /// Kafka로 발행되는 주문 취소 이벤트
 /// Java Consumer가 이를 받아서 DB에 주문 상태를 업데이트합니다.
 #[derive(Debug, Clone, Serialize)]
 pub struct OrderCancelledEvent {
+    /// 재시작·재전송에도 변하지 않는 저널 기반 이벤트 식별자다.
+    pub event_id: String,
+    /// 단일 코어의 모든 결과를 같은 파티션으로 보내는 엔진 식별자다.
+    pub engine_id: String,
     /// 이벤트 타입 ("order_cancelled")
     #[serde(rename = "event_type")]
     pub event_type: String,

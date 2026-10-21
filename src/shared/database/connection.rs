@@ -23,6 +23,12 @@ impl Database {
         Ok(Self { pool })
     }
 
+    /// 재시작 복구는 엔진 저널만 읽는다. HTTP 어댑터의 디비 연결은 실제
+    /// 요청 시 열어 플랫폼 디비 장애가 엔진 상태 재생 자체를 막지 않게 한다.
+    pub fn lazy(db_url: &str) -> Result<Self> {
+        Ok(Self { pool: sqlx::postgres::PgPoolOptions::new().connect_lazy(db_url)? })
+    }
+
     // 연결 풀 반환
     // Get connection pool
     pub fn pool(&self) -> &PgPool {

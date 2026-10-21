@@ -26,3 +26,5 @@ pub use engine::HighPerformanceEngine;
 pub use handle::EngineHandle;
 pub use commands::OrderCommand;
 pub use balance_commands::BalanceCommand;
+
+mod journal;

@@ -1,11 +1,11 @@
-//! 엔진 워커는 거래 상태를 소유한다. 입력 대기 외에 외부 입출력이나
-//! 스레드 생성·런타임 생성·디비 쓰기·동기 로그를 수행하지 않는다.
+//! 체결 상태는 이 워커 하나가 소유한다. 디스크·네트워크·응답 완료 대기 없이
+//! 명령과 결과·응답 채널을 저널 큐로 이동한다. 영속 확정은 별도 워커의 책임이다.
 use super::{
     balance_commands::BalanceCommand,
     commands::OrderCommand,
     config::configure_engine_thread,
     engine::EngineState,
-    output::{self, OutputBatch},
+    journal::{self, Command, Outcome, Pending, Reply},
     submission::{self, AppliedSubmission},
 };
 use crate::domains::cex::engine::{
@@ -27,28 +27,43 @@ use std::{
     time::Duration,
 };
 
-/// 출력 송신자는 이 함수로 이동하고 복제하지 않는다. 출력 공간을 먼저 검사한
-/// 다음 한 명령을 처리해 한 배치를 전달하므로, 확정 도중 큐 포화가 생기지 않는다.
-/// 출력 소비자는 공간을 늘리기만 하며 제어 객체가 수신자 수명을 유지한다.
+/// 유일한 생산자가 빈 공간을 확보한 뒤 한 명령당 한 항목만 보낸다.
+/// 소비자는 공간을 늘리기만 하므로 계산 도중 다른 생산자가 슬롯을 차지하지 않는다.
+fn publish(sender: Option<&Sender<Pending>>, pending: Pending) {
+    if let Some(sender) = sender {
+        assert!(
+            sender.try_send(pending).is_ok(),
+            "reserved journal capacity remains available"
+        );
+    } else {
+        // 순수 계산 벤치 모드에는 영속 보장을 부여하지 않는다.
+        pending.finish();
+    }
+}
 pub(super) fn engine_thread_loop(
     orders: Receiver<OrderCommand>,
     balances: Receiver<BalanceCommand>,
-    output: Option<Sender<OutputBatch>>,
+    output: Option<Sender<Pending>>,
     mut state: EngineState,
     running: Arc<AtomicBool>,
     closed: Arc<AtomicBool>,
 ) -> EngineState {
+    // 어떤 종료 경로에서도 외부 요청이 살아 있는 코어로 오인하지 않게 한다.
+    struct CloseCore(Arc<AtomicBool>);
+    impl Drop for CloseCore {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Release);
+        }
+    }
+    let _close = CloseCore(closed.clone());
     configure_engine_thread();
     while running.load(Ordering::Acquire) && !closed.load(Ordering::Acquire) {
-        if !output::has_capacity(output.as_ref()) {
-            // 출력 소비자를 추월하지 않는다. 채널 전송에서 잠들거나 확정 결과를
-            // 버리지 않고, 입력을 큐에 남겨 압력을 입구까지 전달한다.
-            // 이 진행 제어는 유한 버퍼의 필수 제약이며 디비·네트워크 대기가 아니다.
+        if output.as_ref().is_some_and(|sender| sender.is_full()) {
+            // 유한 버퍼에서 기록을 버리지 않는다. 계산은 잠시 멈추지만 디스크
+            // 호출이나 blocking send로 코어를 재우지 않는다.
             std::hint::spin_loop();
             continue;
         }
-        // 기존 잔고 우선 정책은 유지한다. 두 입력 큐의 재생 순서·공정성은
-        // 별도 계약이 필요하며, 이번 출력 순서 보장과 혼동하지 않는다.
         if let Ok(BalanceCommand::UpdateBalance {
             user_id,
             mint,
@@ -56,11 +71,20 @@ pub(super) fn engine_thread_loop(
             response,
         }) = balances.try_recv()
         {
-            state
-                .executor
-                .balance_cache_mut()
-                .add_available(user_id, &mint, available_delta);
-            let _ = response.send(Ok(()));
+            let command = Command::Balance {
+                user_id,
+                mint,
+                delta: available_delta,
+            };
+            let outcome = journal::apply(&mut state, &command);
+            publish(
+                output.as_ref(),
+                Pending {
+                    command: Some(command),
+                    outcome,
+                    reply: Reply::Unit(response),
+                },
+            );
             continue;
         }
         let command = match orders.recv_timeout(Duration::from_millis(1)) {
@@ -68,69 +92,64 @@ pub(super) fn engine_thread_loop(
             Err(crossbeam::channel::RecvTimeoutError::Timeout) => continue,
             Err(crossbeam::channel::RecvTimeoutError::Disconnected) => break,
         };
-        // 출력 실패나 정상 종료를 본 뒤에는 새 상태 변경을 시작하지 않는다.
-        // 검사와 처리가 경쟁한 마지막 명령의 출력도 살아 있는 큐에 남는다.
         if closed.load(Ordering::Acquire) || !running.load(Ordering::Acquire) {
             break;
         }
-        match command {
+        let (command, reply) = match command {
             OrderCommand::SubmitOrder { order, response } => {
-                let order_id = order.id;
-                match process_submit_order(
-                    order,
-                    &mut state.orderbooks,
-                    &state.matcher,
-                    &mut state.executor,
-                ) {
-                    Ok(applied) => {
-                        // 실제 제출 경로는 응답 대기 없이 접수 증명을 반환한다.
-                        // 결과를 기다리는 호출자에게만 체결 목록을 별도로 복사한다.
-                        let reply = response.as_ref().map(|_| applied.matches.clone());
-                        if output.is_some() {
-                            output::publish(
-                                output.as_ref(),
-                                OutputBatch::submitted(applied, &state.executor),
-                            );
-                        }
-                        if let Some(response) = response {
-                            let _ = response.send(Ok(reply.unwrap()));
-                        }
-                    }
-                    Err(error) => {
-                        if output.is_some() {
-                            output::publish(
-                                output.as_ref(),
-                                OutputBatch::Rejected {
-                                    order_id,
-                                    reason: error.to_string(),
-                                },
-                            );
-                        }
-                        if let Some(response) = response {
-                            let _ = response.send(Err(error));
-                        }
-                    }
-                }
+                (Some(Command::Submit(order)), Reply::Submit(response))
             }
             OrderCommand::CancelOrder {
                 order_id,
                 user_id,
                 trading_pair,
                 response,
-            } => {
-                let result = cancel_order(
+            } => (
+                Some(Command::Cancel {
                     order_id,
                     user_id,
-                    &trading_pair,
-                    &mut state.orderbooks,
-                    &mut state.executor,
-                );
-                if let Ok(order) = &result {
-                    if output.is_some() {
-                        output::publish(output.as_ref(), OutputBatch::Cancelled(order.clone()));
-                    }
-                }
-                let _ = response.send(result);
+                    pair: trading_pair,
+                }),
+                Reply::Cancel(response),
+            ),
+            OrderCommand::LockBalance {
+                user_id,
+                mint,
+                amount,
+                response,
+            } => (
+                Some(Command::Lock {
+                    user_id,
+                    mint,
+                    amount,
+                }),
+                Reply::Unit(response),
+            ),
+            OrderCommand::UnlockBalance {
+                user_id,
+                mint,
+                amount,
+                response,
+            } => (
+                Some(Command::Unlock {
+                    user_id,
+                    mint,
+                    amount,
+                }),
+                Reply::Unit(response),
+            ),
+            OrderCommand::GetBalance {
+                user_id,
+                mint,
+                response,
+            } => {
+                let value = state
+                    .executor
+                    .balance_cache()
+                    .get_balance(user_id, &mint)
+                    .map(|b| (b.available, b.locked))
+                    .unwrap_or((Decimal::ZERO, Decimal::ZERO));
+                (None, Reply::Balance(response, value))
             }
             OrderCommand::GetOrderbook {
                 trading_pair,
@@ -159,48 +178,24 @@ pub(super) fn engine_thread_loop(
                             .cloned(),
                     );
                 }
-                let _ = response.send(Ok((bids, asks)));
+                (None, Reply::Book(response, (bids, asks)))
             }
-            OrderCommand::GetBalance {
-                user_id,
-                mint,
-                response,
-            } => {
-                let balance = state
-                    .executor
-                    .balance_cache()
-                    .get_balance(user_id, &mint)
-                    .map(|balance| (balance.available, balance.locked))
-                    .unwrap_or((Decimal::ZERO, Decimal::ZERO));
-                let _ = response.send(Ok(balance));
-            }
-            OrderCommand::LockBalance {
-                user_id,
-                mint,
-                amount,
-                response,
-            } => {
-                let _ = response.send(
-                    state
-                        .executor
-                        .lock_balance_for_order(0, user_id, &mint, amount),
-                );
-            }
-            OrderCommand::UnlockBalance {
-                user_id,
-                mint,
-                amount,
-                response,
-            } => {
-                let _ = response.send(
-                    state
-                        .executor
-                        .unlock_balance_for_cancel(0, user_id, &mint, amount),
-                );
-            }
-        }
+        };
+        let outcome = command
+            .as_ref()
+            .map(|command| journal::apply(&mut state, command))
+            .unwrap_or(Outcome::Applied(None));
+        // 조회 응답도 앞선 명령의 커밋 뒤 공개한다. 아직 저장되지 않은 계산
+        // 결과를 조회 성공으로 먼저 외부에 노출하지 않는 순서 장벽이다.
+        publish(
+            output.as_ref(),
+            Pending {
+                command,
+                outcome,
+                reply,
+            },
+        );
     }
-    // 종료 후에는 제어 객체만 상태를 보관한다. 실행 중 공유 접근은 없다.
     state
 }
 

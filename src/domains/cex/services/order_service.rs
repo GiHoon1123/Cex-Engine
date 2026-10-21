@@ -1,25 +1,25 @@
-use crate::shared::database::{Database, OrderRepository};
-use crate::domains::cex::models::order::{Order, CreateOrderRequest};
-use crate::domains::cex::engine::{Engine, TradingPair, OrderEntry, entry_to_order, runtime::EngineHandle};
-use anyhow::{Context, Result, bail};
-use rust_decimal::Decimal;
-use chrono::Utc;
 use super::order_receipt::{self, AcceptanceResult};
+use crate::domains::cex::engine::{
+    entry_to_order, runtime::EngineHandle, Engine, OrderEntry, TradingPair,
+};
+use crate::domains::cex::models::order::{CreateOrderRequest, Order};
+use crate::shared::database::{Database, OrderRepository};
+use anyhow::{bail, Context, Result};
+use chrono::Utc;
+use rust_decimal::Decimal;
 
-/// 플랫폼 원본과 엔진 영속 접수·실행 큐의 경계를 연결한다.
-///
-/// 생성은 DB 접수 커밋 뒤 최초 요청만 큐로 전달한다. 여기서 반환하는 접수 증명은
-/// 체결 완료·주문장 복구 가능성을 뜻하지 않는다. 취소·조회는 기존 메서드가 담당한다.
-/// 명령 핸들만 복제한다. 요청 전체를 잠그거나 거래 상태를 공유하지 않는다.
+/// 플랫폼 주문 원본을 검증하고, 엔진 자체 저널의 영속 확인을 기다린다.
+/// 디비 접수만 남고 실행 큐 전달이 실패한 경우에는 성공으로 응답하지 않는다.
+/// 같은 원본 재전송은 코어가 복원한 주문 식별 인덱스로 중복 실행을 막는다.
 #[derive(Clone)]
 pub struct OrderService {
     /// 데이터베이스 연결
     /// Database connection
     db: Database,
-    
+
     /// 체결 엔진 (구체 타입 직접 사용)
     /// Matching engine (concrete type)
-    /// 
+    ///
     /// 엔진은 하나만 존재하므로 구체 타입을 직접 사용합니다.
     /// Wrapper 없이 동일한 인스턴스를 공유합니다.
     engine: EngineHandle,
@@ -31,75 +31,82 @@ impl OrderService {
         Self { db, engine }
     }
 
-    /// 플랫폼 원본과 같은 명령을 먼저 영속 접수하고, 최초 접수만 실행 큐로 보낸다.
-    /// 반환은 체결 완료가 아니다. 커밋 후 큐 전달 전 종료 가능성을 감추지 않는다.
+    /// 원본 검증 뒤 저널 확인을 기다린다. 기존 접수도 재확인하며 체결 완료와 구분한다.
     pub async fn create_order(
-        &self, user_id: u64, request: CreateOrderRequest,
+        &self,
+        user_id: u64,
+        request: CreateOrderRequest,
     ) -> Result<AcceptanceResult> {
-        anyhow::ensure!(user_id == request.user_id, super::order_receipt::ReceiptError::Invalid);
+        anyhow::ensure!(
+            user_id == request.user_id,
+            super::order_receipt::ReceiptError::Invalid
+        );
         self.validate_order_request(&request)
             .map_err(|_| super::order_receipt::ReceiptError::Invalid)?;
         let accepted = order_receipt::accept(self.db.pool(), &request).await?;
-        if !accepted.created {
-            // 잔액·주문장이 이미 바뀌었어도 접수 원본은 유지된다. 재전송을 실행하지 않는다.
-            return Ok(accepted);
-        }
         let market_buy = request.order_type == "buy" && request.order_side == "market";
-        let amount = if market_buy { Decimal::ZERO } else { request.amount.unwrap() };
+        let amount = if market_buy {
+            Decimal::ZERO
+        } else {
+            request.amount.unwrap()
+        };
         let entry = OrderEntry {
-            id: request.order_id.unwrap(), user_id,
-            order_type: request.order_type, order_side: request.order_side,
+            id: request.order_id.unwrap(),
+            user_id,
+            order_type: request.order_type,
+            order_side: request.order_side,
             base_mint: request.base_mint,
             quote_mint: request.quote_mint.unwrap_or_else(|| "USDT".into()),
-            price: request.price, amount, quote_amount: request.quote_amount,
-            filled_amount: Decimal::ZERO, remaining_amount: amount,
-            remaining_quote_amount: if market_buy { request.quote_amount } else { None },
+            price: request.price,
+            amount,
+            quote_amount: request.quote_amount,
+            filled_amount: Decimal::ZERO,
+            remaining_amount: amount,
+            remaining_quote_amount: if market_buy {
+                request.quote_amount
+            } else {
+                None
+            },
             created_at: accepted.receipt.accepted_at,
         };
-        // 분리된 tokio::spawn은 제거한다. 이 HTTP 작업이 영속 접수의 삽입 승자이며
-        // 큐 전달을 한 번 시도한다. 실패해도 접수 기록을 삭제하거나 거짓 거부로 바꾸지 않는다.
-        if let Err(error) = self.engine.submit_order(entry).await {
-            eprintln!("[Order] 접수 저장 후 큐 전달 실패: order_id={}, error={}", accepted.receipt.order_id, error);
-        }
+        // 기존 DB 접수 여부와 무관하게 같은 명령을 전달한다. 코어의 저널 복원
+        // 인덱스가 중복 실행을 막고, 저널 커밋이 확인돼야 HTTP 성공을 반환한다.
+        self.engine.submit_order(entry).await?;
         Ok(accepted)
     }
 
     /// 주문 취소
     /// Cancel order
-    /// 
+    ///
     /// 대기 중이거나 부분 체결된 주문을 취소합니다.
-    /// 
+    ///
     /// # Arguments
     /// * `user_id` - 주문을 취소하려는 사용자 ID (권한 확인용)
     /// * `order_id` - 취소할 주문 ID
-    /// 
+    ///
     /// # Returns
     /// * `Ok(Order)` - 취소된 주문 정보
     /// * `Err` - 취소 실패 (존재하지 않음, 권한 없음, 이미 체결됨 등)
-    /// 
+    ///
     /// # 처리 과정
     /// 1. 주문 존재 확인
     /// 2. 권한 확인 (본인 주문인지)
     /// 3. 취소 가능 상태 확인 (pending/partial만 가능)
     /// 4. 엔진에 취소 요청
     /// 5. 실행 결과 반환, 플랫폼 상태 반영은 결과 소비자의 책임
-    /// 
+    ///
     /// # Errors
     /// - 주문이 존재하지 않음
     /// - 권한 없음 (다른 사용자의 주문)
     /// - 이미 전량 체결됨
     /// - 이미 취소됨
-    /// 
+    ///
     /// # Examples
     /// ```
     /// let cancelled = service.cancel_order(user_id, order_id).await?;
     /// println!("주문 취소: {}", cancelled.id);
     /// ```
-    pub async fn cancel_order(
-        &self,
-        user_id: u64,
-        order_id: u64,
-    ) -> Result<Order> {
+    pub async fn cancel_order(&self, user_id: u64, order_id: u64) -> Result<Order> {
         let order_repo = OrderRepository::new(self.db.pool().clone());
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -133,10 +140,7 @@ impl OrderService {
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         // 4. 엔진에 취소 요청
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        let trading_pair = TradingPair::new(
-            order.base_mint.clone(),
-            order.quote_mint.clone(),
-        );
+        let trading_pair = TradingPair::new(order.base_mint.clone(), order.quote_mint.clone());
 
         let cancelled_entry = {
             self.engine
@@ -151,7 +155,6 @@ impl OrderService {
         result.status = "cancelled".into();
         Ok(result)
     }
-
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 내부 헬퍼 함수들 (Private Helper Methods)
@@ -234,5 +237,4 @@ impl OrderService {
 
         Ok(())
     }
-
 }

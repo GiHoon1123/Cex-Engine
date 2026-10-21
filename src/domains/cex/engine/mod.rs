@@ -16,7 +16,7 @@ pub mod orderbook;
 pub mod matcher;
 pub mod executor;
 pub mod balance_cache;
-pub mod wal;
+
 pub mod runtime;
 
 // TODO: 나중에 구현

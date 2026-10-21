@@ -9,8 +9,8 @@ use crate::{
 };
 use anyhow::Result;
 use chrono::Utc;
-use crossbeam::channel::{Receiver, Sender};
 use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -18,7 +18,7 @@ use std::sync::{
 
 /// 한 명령의 출력은 하나의 큐 항목이다. 여러 체결 도중 큐가 가득 차서
 /// 일부만 전달되는 것을 막는다. 문자열과 직렬화는 출력 워커에서 구성한다.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(super) enum OutputBatch {
     Submitted {
         order_id: u64,
@@ -30,7 +30,7 @@ pub(super) enum OutputBatch {
         reason: String,
     },
 }
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(super) struct TradeOutput {
     trade: MatchResult,
     balances: [Decimal; 8],
@@ -67,13 +67,11 @@ impl OutputBatch {
     }
 }
 
-/// 전달 확인이 끝나지 않은 위치와 원본 배치를 함께 보존한다.
-/// 실패한 발행은 브로커에 도착했을 수도 있으므로 자동 재전송하지 않는다.
-#[derive(Debug)]
-pub(super) struct FailedOutput {
-    pub batch: OutputBatch,
-    pub next_event: usize,
-    pub reason: String,
+/// 동일 저널 위치에서 재발행할 때 식별자와 시간을 그대로 재현한다.
+pub(super) struct Position<'a> {
+    pub engine_id: &'a str,
+    pub sequence: u64,
+    pub timestamp: chrono::DateTime<Utc>,
 }
 #[derive(Debug)]
 pub(super) struct DeliveryError {
@@ -81,26 +79,10 @@ pub(super) struct DeliveryError {
     pub reason: String,
 }
 
-/// 송신자는 엔진 워커에만 존재한다. 제어 객체는 수신자만 보유하므로 큐가
-/// 가득 차지 않았다는 검사 뒤, 다른 생산자가 빈 공간을 차지할 수 없다.
-/// 수신자는 처리 실패 뒤에도 제어 객체에 남아 큐의 결과를 보존한다.
-pub(super) fn has_capacity(sender: Option<&Sender<OutputBatch>>) -> bool {
-    sender.map(|sender| !sender.is_full()).unwrap_or(true)
-}
-
-pub(super) fn publish(sender: Option<&Sender<OutputBatch>>, batch: OutputBatch) {
-    if let Some(sender) = sender {
-        // 한 생산자·한 명령당 한 배치·살아 있는 수신자라는 조건으로 공간을
-        // 확보했다. 예상 밖 실패를 성공처럼 무시하지 않는다.
-        sender
-            .try_send(batch)
-            .expect("reserved output capacity remains available");
-    }
-}
-
 pub(super) fn deliver(
     producer: &KafkaProducer,
     batch: &OutputBatch,
+    position: &Position<'_>,
     runtime: &tokio::runtime::Runtime,
 ) -> std::result::Result<(), DeliveryError> {
     runtime.block_on(async {
@@ -111,6 +93,8 @@ pub(super) fn deliver(
                     let t = &output.trade;
                     let b = output.balances;
                     let event = TradeExecutedEvent {
+                        event_id: format!("{}:{}:{}", position.engine_id, position.sequence, index),
+                        engine_id: position.engine_id.into(),
                         event_type: "trade_executed".into(),
                         buy_order_id: t.buy_order_id,
                         sell_order_id: t.sell_order_id,
@@ -120,7 +104,7 @@ pub(super) fn deliver(
                         amount: t.amount,
                         base_mint: t.base_mint.clone(),
                         quote_mint: t.quote_mint.clone(),
-                        timestamp: Utc::now(),
+                        timestamp: position.timestamp,
                         buyer_base_available: b[0],
                         buyer_base_locked: b[1],
                         buyer_quote_available: b[2],
@@ -141,12 +125,14 @@ pub(super) fn deliver(
             }
             OutputBatch::Cancelled(order) => {
                 let event = OrderCancelledEvent {
+                    event_id: format!("{}:{}:0", position.engine_id, position.sequence),
+                    engine_id: position.engine_id.into(),
                     event_type: "order_cancelled".into(),
                     order_id: order.id,
                     user_id: order.user_id,
                     base_mint: order.base_mint.clone(),
                     quote_mint: order.quote_mint.clone(),
-                    timestamp: Utc::now(),
+                    timestamp: position.timestamp,
                 };
                 producer
                     .publish_order_cancelled(&event)
@@ -170,58 +156,99 @@ impl Drop for CloseOnExit {
     }
 }
 
-pub(super) fn run(
-    receiver: Receiver<OutputBatch>,
+/// 저널 워커가 공개한 영속 순번까지만 읽는다. 전달 확인과 커서 저장 사이에
+/// 종료되면 같은 이벤트가 재발행될 수 있으므로 플랫폼의 영속 중복 검사가 필수다.
+pub(super) fn run_store(
+    store: super::journal::store::Store,
+    engine_id: String,
+    progress: Arc<super::journal::store::Progress>,
     closed: Arc<AtomicBool>,
-    mut deliver: impl FnMut(&OutputBatch) -> std::result::Result<(), DeliveryError>,
-) -> Option<FailedOutput> {
+    ready: tokio::sync::oneshot::Sender<std::result::Result<(), String>>,
+    mut send: impl FnMut(&OutputBatch, &Position<'_>) -> std::result::Result<(), DeliveryError>,
+) -> Result<()> {
     let _close = CloseOnExit(closed);
-    while let Ok(batch) = receiver.recv() {
-        if let Err(error) = deliver(&batch) {
-            // 후속 배치를 소비하지 않는다. 실패 배치는 반환값에, 아직 읽지 않은
-            // 배치는 제어 객체가 보유한 수신 큐에 남는다.
-            let order_id = match &batch {
-                OutputBatch::Submitted { order_id, .. }
-                | OutputBatch::Rejected { order_id, .. } => *order_id,
-                OutputBatch::Cancelled(order) => order.id,
-            };
-            eprintln!(
-                "output_delivery_failed order_id={} next_event={} reason={}",
-                order_id, error.next_event, error.reason
-            );
-            return Some(FailedOutput {
-                batch,
-                next_event: error.next_event,
-                reason: error.reason,
-            });
+    let startup_end = progress.durable.load(Ordering::Acquire);
+    let mut ready = Some(ready);
+    let mut cursor = store.delivered()?;
+    loop {
+        if cursor >= startup_end {
+            if let Some(ready) = ready.take() {
+                let _ = ready.send(Ok(()));
+            }
         }
-        if let OutputBatch::Rejected { order_id, reason } = &batch {
-            eprintln!("output_rejected order_id={} reason={}", order_id, reason);
+        if cursor < progress.durable.load(Ordering::Acquire) {
+            let record = store.read(cursor + 1)?;
+            if let super::journal::Outcome::Applied(Some(batch)) = &record.outcome {
+                let position = Position {
+                    engine_id: &engine_id,
+                    sequence: record.sequence,
+                    timestamp: record.timestamp,
+                };
+                if let Err(error) = send(batch, &position) {
+                    eprintln!(
+                        "output_delivery_failed sequence={} next_event={} reason={}",
+                        record.sequence, error.next_event, error.reason
+                    );
+                    if let Some(ready) = ready.take() {
+                        let _ = ready.send(Err(error.reason.clone()));
+                    }
+                    anyhow::bail!(
+                        "Kafka delivery failed at sequence {} event {}: {}",
+                        record.sequence,
+                        error.next_event,
+                        error.reason
+                    );
+                }
+                match batch {
+                    OutputBatch::Submitted { order_id, trades } => eprintln!(
+                        "output_completed order_id={} trades={}",
+                        order_id,
+                        trades.len()
+                    ),
+                    OutputBatch::Rejected { order_id, reason } => {
+                        eprintln!("output_rejected order_id={} reason={}", order_id, reason)
+                    }
+                    _ => {}
+                }
+            }
+            // Kafka 확인 후에만 커서를 저장한다. 불확실한 전달은 성공으로
+            // 건너뛰지 않고 재시작에서 동일 식별자로 다시 보낸다.
+            store.mark_delivered(record.sequence)?;
+            cursor = record.sequence;
+            progress.delivered.store(cursor, Ordering::Release);
+            continue;
         }
-        if let OutputBatch::Submitted { order_id, trades } = &batch {
-            eprintln!(
-                "output_completed order_id={} trades={}",
-                order_id,
-                trades.len()
-            );
+        if progress.journal_done.load(Ordering::Acquire)
+            && cursor == progress.durable.load(Ordering::Acquire)
+        {
+            return Ok(());
         }
+        std::thread::sleep(std::time::Duration::from_millis(1));
     }
-    None
 }
-
 pub(super) fn spawn(
-    receiver: Receiver<OutputBatch>,
+    store: super::journal::store::Store,
+    engine_id: String,
+    progress: Arc<super::journal::store::Progress>,
     closed: Arc<AtomicBool>,
     producer: KafkaProducer,
-) -> Result<std::thread::JoinHandle<Option<FailedOutput>>> {
-    // 런타임 생성 실패는 엔진이 상태를 변경하기 전에 호출자에게 전달한다.
-    // 런타임은 하나만 생성하고 출력 스레드로 소유권을 이동한다.
+) -> Result<(
+    std::thread::JoinHandle<Result<()>>,
+    tokio::sync::oneshot::Receiver<std::result::Result<(), String>>,
+)> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
-    Ok(std::thread::spawn(move || {
-        run(receiver, closed, |batch| {
-            deliver(&producer, batch, &runtime)
-        })
-    }))
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let worker = std::thread::spawn(move || {
+        run_store(
+            store,
+            engine_id,
+            progress,
+            closed,
+            sender,
+            |batch, position| deliver(&producer, batch, position, &runtime),
+        )
+    });
+    Ok((worker, receiver))
 }

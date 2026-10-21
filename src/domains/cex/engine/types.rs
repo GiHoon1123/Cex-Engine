@@ -100,7 +100,7 @@ impl TradingPair {
 ///     created_at: Utc::now(),
 /// };
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OrderEntry {
     /// 주문 고유 ID
     /// Unique order ID (same as DB)

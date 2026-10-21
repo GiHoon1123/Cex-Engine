@@ -47,6 +47,7 @@ try:
     env.update(DATABASE_URL=f"postgres://root:1234@127.0.0.1:{port}/cex_test",
                KAFKA_BOOTSTRAP_SERVERS="127.0.0.1:1")
     selected = [
+        ("journal", ["test", "--locked", "--lib", "journal_"]),
         ("output", ["test", "--locked", "--lib", "output_"]),
         ("ownership", ["test", "--locked", "--lib", "ownership_"]),
         ("request", ["test", "--locked", "--lib", "request_decimals"]),

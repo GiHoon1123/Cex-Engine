@@ -36,7 +36,13 @@ async fn create_schema(pool: &PgPool) -> Result<()> {
 
 fn create_engine(pool: PgPool) -> HighPerformanceEngine {
     // 검증 실행기가 지정한 격리 디비와 사용하지 않는 루프백 브로커만 사용한다.
-    HighPerformanceEngine::new(Database::noop(pool))
+    {
+        let directory = tempfile::tempdir().expect("isolated startup directory");
+        let mut engine =
+            HighPerformanceEngine::new(Database::noop(pool)).with_data_dir(directory.path());
+        engine.test_directory = Some(directory);
+        engine
+    }
 }
 
 async fn finish_engine(engine: &mut HighPerformanceEngine) -> Result<()> {

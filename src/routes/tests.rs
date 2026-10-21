@@ -17,8 +17,10 @@ use tower::ServiceExt;
 /// 않으며, 여기에 사용하는 1번 포트에는 테스트 DB를 띄우지 않는다.
 /// Bench 엔진은 Kafka와 저장 워커를 생성하지 않는다. 아래 테스트는 경로 선택과
 /// 입력 검증까지만 실행하므로 DB·Kafka·Solana 서버의 상태에 의존하지 않는다.
-fn app() -> Router {
-    app_with_engine(HighPerformanceEngine::new_bench().handle())
+async fn app() -> (Router, HighPerformanceEngine) {
+    let mut engine = HighPerformanceEngine::new_bench();
+    engine.start().await.unwrap();
+    (app_with_engine(engine.handle()), engine)
 }
 
 fn app_with_engine(engine: crate::domains::cex::engine::runtime::EngineHandle) -> Router {
@@ -39,7 +41,8 @@ fn app_with_engine(engine: crate::domains::cex::engine::runtime::EngineHandle) -
 /// 인증 코드를 제거해도 외부 의존성 없이 헬스체크에 응답해야 한다.
 #[tokio::test]
 async fn health_check_remains_available() {
-    let response = app()
+    let (router, _engine) = app().await;
+    let response = router
         .oneshot(Request::get("/api/health").body(Body::empty()).unwrap())
         .await
         .unwrap();
@@ -54,7 +57,7 @@ async fn health_check_remains_available() {
 /// 401이 아니라 404를 기대한다. 인증 실패가 아니라 경로 자체가 없다는 계약이다.
 #[tokio::test]
 async fn removed_auth_routes_return_not_found() {
-    let router = app();
+    let (router, _engine) = app().await;
     for (method, path) in [
         (Method::POST, "/api/auth/signup"),
         (Method::POST, "/api/auth/signin"),
@@ -77,7 +80,7 @@ async fn removed_auth_routes_return_not_found() {
 /// 인증 의존성을 끊기 위해 제거한 지갑 핸들러가 공개 API로 다시 연결되지 않아야 한다.
 #[tokio::test]
 async fn retired_wallet_routes_return_not_found() {
-    let router = app();
+    let (router, _engine) = app().await;
     for (method, path) in [
         (Method::POST, "/api/wallets"),
         (Method::GET, "/api/wallets/1"),
@@ -105,7 +108,7 @@ async fn retired_wallet_routes_return_not_found() {
 /// 필수 필드가 없는 JSON은 Axum에서 422로 거부된다. 경로가 사라지면 404가 된다.
 #[tokio::test]
 async fn trading_routes_still_validate_request_bodies() {
-    let router = app();
+    let (router, _engine) = app().await;
     for path in ["/api/cex/orders", "/api/cex/balances/sync"] {
         let request = Request::post(path)
             .header("Content-Type", "application/json")
@@ -124,7 +127,8 @@ async fn trading_routes_still_validate_request_bodies() {
 /// user_id가 없으면 DB 조회 전에 오류를 반환하므로 외부 DB 없이 검사할 수 있다.
 #[tokio::test]
 async fn cancellation_still_requires_user_id() {
-    let response = app()
+    let (router, _engine) = app().await;
+    let response = router
         .oneshot(
             Request::delete("/api/cex/orders/1")
                 .body(Body::empty())

@@ -54,46 +54,23 @@ impl EngineHandle {
 
 #[async_trait]
 impl Engine for EngineHandle {
-    /// 주문 제출
-    ///
-    /// # 처리 과정
-    /// 1. OrderCommand::SubmitOrder 생성 (response: None)
-    /// 2. 엔진 스레드로 전송
-    /// 3. 즉시 반환 (응답을 기다리지 않음)
-    ///
-    /// # 주의사항
-    /// - 주문은 엔진이 백그라운드에서 처리됨
-    /// - 주문 상태는 DB에서 확인 가능
+    /// 코어는 계산 후 응답 채널을 저널 워커로 넘긴다. 이 요청 작업만 비동기로
+    /// 영속 커밋을 기다리므로 매칭 스레드가 디스크 완료를 기다리지 않는다.
     async fn submit_order(&self, order: OrderEntry) -> Result<()> {
-        eprintln!("[Engine] submit_order 호출: order_id={}, user_id={}, order_type={}, order_side={}, price={:?}, amount={}", 
-                 order.id, order.user_id, order.order_type, order.order_side, order.price, order.amount);
-        let order_id = order.id;
-        let cmd = OrderCommand::SubmitOrder {
+        let (sender, receiver) = oneshot::channel();
+        self.send_order(OrderCommand::SubmitOrder {
             order,
-            response: None, // 응답을 기다리지 않음
-        };
-
-        eprintln!(
-            "[Engine] 엔진 스레드로 주문 전송 시도: order_id={}",
-            order_id
-        );
-        // 종료된 엔진·가득 찬 큐에서 panic이나 Tokio 작업의 무제한 blocking을 만들지 않는다.
-        match self.send_order(cmd) {
-            Ok(_) => {
-                eprintln!(
-                    "[Engine] 엔진 스레드로 주문 전송 성공: order_id={}",
-                    order_id
-                );
-                Ok(())
-            }
-            Err(e) => {
-                eprintln!(
-                    "[Engine] 엔진 스레드로 주문 전송 실패: order_id={}, error={}",
-                    order_id, e
-                );
-                Err(anyhow::anyhow!("Failed to send order to engine: {}", e))
-            }
-        }
+            response: sender,
+        })?;
+        timeout(Duration::from_secs(10), receiver)
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!("Durable submission outcome unknown; retry the same order id")
+            })?
+            .map_err(|_| {
+                anyhow::anyhow!("Journal response unavailable; retry the same order id")
+            })??;
+        Ok(())
     }
 
     /// 주문 취소
@@ -115,7 +92,7 @@ impl Engine for EngineHandle {
         self.send_order(cmd)
             .map_err(|e| anyhow::anyhow!("Failed to send cancel command: {}", e))?;
 
-        timeout(Duration::from_millis(100), rx)
+        timeout(Duration::from_secs(10), rx)
             .await
             .map_err(|_| anyhow::anyhow!("Cancel order timeout"))?
             .map_err(|e| anyhow::anyhow!("Failed to receive response: {}", e))?
@@ -138,7 +115,7 @@ impl Engine for EngineHandle {
         self.send_order(cmd)
             .map_err(|e| anyhow::anyhow!("Failed to send get_orderbook command: {}", e))?;
 
-        timeout(Duration::from_millis(100), rx)
+        timeout(Duration::from_secs(10), rx)
             .await
             .map_err(|_| anyhow::anyhow!("Get orderbook timeout"))?
             .map_err(|e| anyhow::anyhow!("Failed to receive response: {}", e))?
@@ -182,7 +159,7 @@ impl Engine for EngineHandle {
         self.send_order(cmd)
             .map_err(|e| anyhow::anyhow!("Failed to send lock_balance command: {}", e))?;
 
-        timeout(Duration::from_millis(100), rx)
+        timeout(Duration::from_secs(10), rx)
             .await
             .map_err(|_| anyhow::anyhow!("Lock balance timeout"))?
             .map_err(|e| anyhow::anyhow!("Failed to receive response: {}", e))?
@@ -202,7 +179,7 @@ impl Engine for EngineHandle {
         self.send_order(cmd)
             .map_err(|e| anyhow::anyhow!("Failed to send unlock_balance command: {}", e))?;
 
-        timeout(Duration::from_millis(100), rx)
+        timeout(Duration::from_secs(10), rx)
             .await
             .map_err(|_| anyhow::anyhow!("Unlock balance timeout"))?
             .map_err(|e| anyhow::anyhow!("Failed to receive response: {}", e))?
@@ -246,7 +223,7 @@ impl Engine for EngineHandle {
         self.send_balance(cmd)
             .map_err(|e| anyhow::anyhow!("Failed to send update_balance command: {}", e))?;
 
-        // DB 업데이트를 포함하므로 더 긴 타임아웃 필요 (운영서버 환경 고려)
+        // 응답은 저널 커밋 뒤에 온다. 시간 초과를 확정 실패로 오인하지 않는다.
         timeout(Duration::from_secs(3), rx)
             .await
             .map_err(|_| anyhow::anyhow!("Update balance timeout"))?

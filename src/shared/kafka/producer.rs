@@ -9,8 +9,8 @@
 //
 // 토픽 구조:
 // - 단일 토픽: order-events (파티션 12개)
-// - 체결은 매수자, 취소는 주문 소유자를 파티션 키로 사용
-// - 서로 다른 파티션의 소비 완료 순서는 보장하지 않음
+// - 동일 엔진의 체결·취소는 같은 엔진 식별자를 키로 사용
+// - 한 코어의 결과는 같은 파티션에서 순서대로 소비
 // - 정산용: trade_executed, order_cancelled만 발행
 //
 // 특징:
@@ -67,9 +67,7 @@ impl KafkaProducer {
     /// 발행 성공 여부 (비동기, 논블로킹)
     ///
     /// # 파티션 키
-    /// - buyer_id를 파티션 키로 사용
-    /// - 매도자의 다른 체결과 취소까지 같은 파티션으로 보내는 계약은 아니다.
-    /// - seller_id는 별도로 발행하지 않음 (Java에서 buyer_id 기준으로 처리)
+    /// - 저널의 엔진 식별자를 키로 사용해 체결과 취소의 상대 순서를 유지한다.
     pub async fn publish_trade_executed(
         &self,
         event: &crate::shared::kafka::events::TradeExecutedEvent,
@@ -77,8 +75,8 @@ impl KafkaProducer {
         eprintln!("[KafkaProducer] trade_executed 이벤트 발행 시작: buy_order_id={}, sell_order_id={}, buyer_id={}, seller_id={}", 
                  event.buy_order_id, event.sell_order_id, event.buyer_id, event.seller_id);
         let topic = "order-events";
-        // 파티션 키: buyer_id 사용 (같은 유저의 이벤트는 같은 파티션으로)
-        let partition_key = format!("{}", event.buyer_id);
+        // 같은 코어가 확정한 모든 결과는 동일한 키를 사용한다.
+        let partition_key = event.engine_id.clone();
         self.publish(topic, Some(&partition_key), event).await
     }
 
@@ -92,15 +90,14 @@ impl KafkaProducer {
     /// 발행 성공 여부 (비동기, 논블로킹)
     ///
     /// # 파티션 키
-    /// - user_id를 파티션 키로 사용
-    /// - 매도자의 다른 체결과 취소까지 같은 파티션으로 보내는 계약은 아니다.
+    /// - 체결과 동일한 엔진 식별자를 키로 사용한다.
     pub async fn publish_order_cancelled(
         &self,
         event: &crate::shared::kafka::events::OrderCancelledEvent,
     ) -> Result<()> {
         let topic = "order-events";
-        // 파티션 키: user_id 사용 (같은 유저의 이벤트는 같은 파티션으로)
-        let partition_key = format!("{}", event.user_id);
+        // 주문 소유자가 달라도 같은 엔진 결과의 순서는 바꾸지 않는다.
+        let partition_key = event.engine_id.clone();
         self.publish(topic, Some(&partition_key), event).await
     }
 
@@ -126,7 +123,8 @@ impl KafkaProducer {
 
         // 출력 워커가 브로커의 완료 확인을 기다린다. 짧은 별도 시간 제한으로
         // 확인 대기를 끊지 않고 클라이언트의 전달 제한 시간을 따른다.
-        // 오류는 성공으로 숨기지 않으며 미확인 결과의 자동 재전송도 하지 않는다.
+        // 오류는 성공으로 숨기지 않는다. 재시작 재발행은 동일 저널 식별자를
+        // 사용하며 플랫폼의 영속 수신 키로 중복 금융 반영을 막는다.
         self.producer
             .send(record, Duration::ZERO)
             .await
@@ -177,6 +175,8 @@ mod tests {
 
         let producer = KafkaProducer::new("localhost:9092").unwrap();
         let event = TradeExecutedEvent {
+            event_id: "example:1:0".into(),
+            engine_id: "example".into(),
             event_type: "trade_executed".to_string(),
             buy_order_id: 100,
             sell_order_id: 101,

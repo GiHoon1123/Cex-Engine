@@ -16,3 +16,6 @@ target/
 .env
 .env.local
 
+
+# 엔진 전용 영속 저널과 소유권 파일
+.engine-data/

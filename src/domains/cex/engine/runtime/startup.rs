@@ -1,8 +1,6 @@
-//! 거래를 재개할 수 있는 초기 DB 상태인지 검증한다.
-//!
-//! 현재 엔진에는 활성 주문의 접수·체결 확정 위치를 재생하는 경로가 없다.
-//! 따라서 미종결 주문이나 예약금을 임의로 지우거나 가용 잔액으로 합치지 않고
-//! 시작을 거부한다. 이 검증은 자동 복구를 대신하는 재구성 로직이 아니다.
+//! 저널 시작점이 없는 최초 기동에서만 플랫폼 잔액을 검증한다.
+//! 기존 접수·활성 주문·예약금이 있으면 이를 새 시작점으로 추측해 변환하지 않는다.
+//! 자체 저널이 존재하는 재시작은 이 함수를 호출하지 않고 기록을 재생한다.
 
 use anyhow::{bail, ensure, Context, Result};
 use rust_decimal::Decimal;
@@ -93,8 +91,10 @@ pub(super) async fn load_balances(pool: &PgPool) -> Result<BalanceCache> {
         );
         // 저장 스키마가 잘못 확장돼도 실행 캐시와 다른 금액 계약을 허용하지 않는다.
         let upper_bound = Decimal::from_i128_with_scale(1_000_000_000_000_000_000_000, 0);
-        ensure!(available < upper_bound && available.normalize().scale() <= 9,
-            "Engine startup blocked: available exceeds NUMERIC(30,9)");
+        ensure!(
+            available < upper_bound && available.normalize().scale() <= 9,
+            "Engine startup blocked: available exceeds NUMERIC(30,9)"
+        );
         ensure!(
             locked == Decimal::ZERO,
             "Engine startup blocked: unresolved locked balance for user={}, mint={}; authoritative replay is required",

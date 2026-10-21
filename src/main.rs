@@ -1,18 +1,18 @@
-use axum::Router;
 use axum::http::Method;
+use axum::Router;
 use tokio::net::TcpListener;
-use tower_http::cors::{CorsLayer, AllowOrigin};
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 // New module structure
 mod domains;
-mod shared;
 mod routes;
+mod shared;
 
-use routes::create_router;
 use crate::shared::database::Database;
 use crate::shared::services::AppState;
+use routes::create_router;
 
 // Import models for OpenAPI schema
 // use crate::domains::swap::models::*;
@@ -104,15 +104,13 @@ async fn main() {
     // 기본값: 프로덕션은 컨테이너 이름, 개발은 localhost
     let db_host = std::env::var("DATABASE_HOST").unwrap_or_else(|_| {
         if std::env::var("RUST_ENV").unwrap_or_else(|_| "dev".to_string()) == "prod" {
-            "cex-postgres".to_string()  // Docker 컨테이너 이름
+            "cex-postgres".to_string() // Docker 컨테이너 이름
         } else {
-            "localhost".to_string()     // 로컬 개발 환경
+            "localhost".to_string() // 로컬 개발 환경
         }
     });
     let db_url = format!("postgresql://root:1234@{}/cex", db_host);
-    let db = Database::new(&db_url)
-        .await
-        .expect("Failed to connect to database");
+    let db = Database::lazy(&db_url).expect("Failed to connect to database");
 
     // DB 초기화 (마이그레이션) - 주문 생성/취소에 필요
     // 마이그레이션 체크섬 불일치 문제로 인해 일단 주석 처리 (테스트용)
@@ -125,8 +123,8 @@ async fn main() {
     // HTTP·UDP에는 복제 가능한 송신 핸들만 주입한다.
     let mut engine = crate::domains::cex::engine::runtime::HighPerformanceEngine::new(db.clone());
     engine.start().await.expect("Failed to start engine");
-    let mut app_state = AppState::new(db.clone(), engine.handle())
-        .expect("Failed to initialize AppState");
+    let mut app_state =
+        AppState::new(db.clone(), engine.handle()).expect("Failed to initialize AppState");
 
     // CORS 설정
     // 개발 환경: localhost 허용, 프로덕션: 모든 origin 허용 (또는 특정 도메인만)
@@ -161,20 +159,20 @@ async fn main() {
         // 개발 환경: localhost만 허용
         CorsLayer::new()
             .allow_origin(AllowOrigin::exact("http://localhost:3003".parse().unwrap()))
-        .allow_methods([
-            Method::GET,
-            Method::POST,
-            Method::PUT,
-            Method::DELETE,
-            Method::OPTIONS,
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::PUT,
+                Method::DELETE,
+                Method::OPTIONS,
                 Method::PATCH,
-        ])
-        .allow_headers([
-            axum::http::header::CONTENT_TYPE,
-            axum::http::header::AUTHORIZATION,
-            axum::http::header::ACCEPT,
+            ])
+            .allow_headers([
+                axum::http::header::CONTENT_TYPE,
+                axum::http::header::AUTHORIZATION,
+                axum::http::header::ACCEPT,
                 axum::http::header::ORIGIN,
-        ])
+            ])
             .allow_credentials(true)
             .expose_headers([
                 axum::http::header::CONTENT_TYPE,
@@ -186,25 +184,45 @@ async fn main() {
     let app = Router::new()
         .merge(create_router())
         // Swagger UI 활성화
-        .merge(
-            SwaggerUi::new("/swagger-ui")
-                .url("/api-docs/openapi.json", ApiDoc::openapi())
-        )
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(cors)
         .with_state(app_state);
 
     // 기본은 내부 루프백이다. 컨테이너 배포·격리 실행 검증에서만 명시적으로 주소를 준다.
-    let http_address = std::env::var("ENGINE_HTTP_ADDRESS")
-        .unwrap_or_else(|_| "127.0.0.1:3002".into());
-    let listener = TcpListener::bind(&http_address)
-        .await
-        .unwrap();
-    
+    let http_address =
+        std::env::var("ENGINE_HTTP_ADDRESS").unwrap_or_else(|_| "127.0.0.1:3002".into());
+    let listener = TcpListener::bind(&http_address).await.unwrap();
+
     eprintln!("[Main] Server running on http://{}", http_address);
     eprintln!("[Main] Database: PostgreSQL (cex)");
-    
+
     // 서버 실행
     axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
         .await
-        .unwrap();
+        .expect("HTTP server failed");
+    engine
+        .stop()
+        .await
+        .expect("Engine shutdown left pending work");
+}
+
+/// 종료 신호를 받으면 HTTP 신규 접수를 닫고 진행 중 요청을 마친 뒤
+/// 엔진의 저널·출력 워커를 순서대로 회수한다. 강제 종료는 로그 재생으로 복구한다.
+async fn shutdown_signal() {
+    let interrupt = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("Signal handler failed");
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("Termination handler failed")
+            .recv()
+            .await;
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! { _ = interrupt => {}, _ = terminate => {} }
 }

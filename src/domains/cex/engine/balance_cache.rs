@@ -226,6 +226,14 @@ impl BalanceCache {
         }
     }
 
+    /// 최초 기동의 검증된 잔액을 저널에 한 번 저장한다. 재시작에서는 플랫폼
+    /// 디비를 다시 합산하지 않고 이 시작점과 이후 명령만 재생한다.
+    pub(crate) fn journal_seed(&self) -> Vec<(u64, String, Decimal, Decimal)> {
+        let mut rows: Vec<_> = self.balances.iter().map(|((user, mint), b)| (*user, mint.clone(), b.available, b.locked)).collect();
+        rows.sort_by(|a, b| (a.0, &a.1).cmp(&(b.0, &b.1)));
+        rows
+    }
+
     /// 모든 잔고 삭제 (벤치마크/테스트 초기화용)
     pub fn clear(&mut self) {
         self.balances.clear();
