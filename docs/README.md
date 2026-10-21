@@ -5,3 +5,4 @@
 ## 설계 결정
 
 - [엔진에서 사용자 인증 제거하기](decisions/001-remove-engine-auth.md): 인증 책임을 Java 플랫폼으로 모으고, 비활성 코드와 의존성을 제거한 이유 및 HTTP 회귀 테스트.
+- [복구 근거가 없는 주문·예약금의 시작 차단](decisions/002-block-incomplete-startup-state.md): 초기 DB 스냅샷 검증, 임의 예약 해제 제거, PostgreSQL 테스트와 실제 시작 거부 확인.

@@ -3,3 +3,7 @@
 ## 기술 문서
 
 - [설계 결정과 개선 기록](docs/README.md)
+
+## 시작 조건
+
+미종결 주문·예약금이 있으면 현재 엔진은 자동 복원 없이 거래를 재개하지 않고 시작을 거부한다. 시작 조건과 검증 범위는 [초기 상태 검증 기록](docs/decisions/002-block-incomplete-startup-state.md)에서 확인한다.
