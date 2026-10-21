@@ -18,3 +18,5 @@
 - [엔진의 비활성 봇 제거](decisions/010-remove-engine-bot.md): 플랫폼으로 봇 책임을 모으고 남은 파일·직접 의존성을 제거한 근거와 회귀 검사.
 
 - [WAL 기반 자체 호가·공개 체결 발행](decisions/011-durable-market-output.md): 코어 비용 분리, 시장 토픽·순번·재시작 기준점과 취소의 자체 상태 검증.
+
+- [주문 당시 적용률과 수취 자산 수수료](decisions/012-received-asset-fees.md): 코어 차감·WAL 보존·변화량 발행·복구·비영 수수료 검증.
