@@ -199,3 +199,5 @@ PATH=/usr/local/bin:$PATH python3 scripts/verify_durable_acceptance.py
 - 플랫폼 `8ee8983`: 접수 증명의 식별자·상태·시각 검증.
 
 문서는 별도 목적의 커밋으로 기록한다. 검증·문서 완료 후 작업 단위로 푸시한다.
+
+후속 검토: [금액 타입 경계 오류 수정](005-exact-amount-boundaries-review.md). 이 글의 당시 검증 결과와 후속 변경을 구분한다.

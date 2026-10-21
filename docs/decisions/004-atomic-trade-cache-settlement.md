@@ -125,3 +125,5 @@ PATH=/usr/local/bin:$PATH python3 scripts/verify_durable_acceptance.py
 
 - [num-bigint 공식 저장소](https://github.com/rust-num/num-bigint): 설치된 의존성·타입을 확인하고 0.4.6을 직접 사용했다. 새 패키지 버전을 추가하지 않았다.
 - [이전 접수 결정](003-durable-order-acceptance.md): 접수 확정과 실제 실행·정산 확정의 차이.
+
+후속 검토: [금액 타입 경계 오류 수정](005-exact-amount-boundaries-review.md). 이 글의 당시 검증 결과와 후속 변경을 구분한다.
