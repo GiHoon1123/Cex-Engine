@@ -122,13 +122,22 @@ try:
     sql("CREATE TABLE fee_configs(id BIGSERIAL PRIMARY KEY, base_mint VARCHAR(255), quote_mint VARCHAR(255), fee_rate NUMERIC(10,6) NOT NULL, fee_type VARCHAR(20) NOT NULL, is_active BOOLEAN NOT NULL, created_at TIMESTAMP NOT NULL, updated_at TIMESTAMP NOT NULL); INSERT INTO fee_configs(fee_rate,fee_type,is_active,created_at,updated_at) VALUES(0.001,'both',true,now(),now());")
     engine_port = port()
     forwarded = []
+    forwarded_bodies = []
     forwarded_event = threading.Event()
 
     class LoseResponse(BaseHTTPRequestHandler):
         lose_response = True
+        block_forward = False
 
         def do_POST(self):
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
+            if self.block_forward:
+                # 엔진까지 도달하지 못한 제출을 만든다. 이 HTTP 오류도 예약 반환의 근거가 아니다.
+                self.send_response(503)
+                self.send_header("Content-Length","0")
+                self.end_headers()
+                return
+            forwarded_bodies.append(body)
             result = http(f"http://127.0.0.1:{engine_port}/api/cex/orders", body)
             forwarded.append(result)
             forwarded_event.set()
@@ -152,13 +161,14 @@ try:
     threading.Thread(target=proxy.serve_forever, daemon=True).start()
     platform_port = port()
     java = Path(os.environ.get("JAVA_HOME", "/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home")) / "bin/java"
-    platform, platform_log = start([str(java), "-jar", str(ROOT / "Cex-Platform-Service/build/libs/cex-0.0.1-SNAPSHOT.jar"),
+    platform_command = [str(java), "-jar", str(ROOT / "Cex-Platform-Service/build/libs/cex-0.0.1-SNAPSHOT.jar"),
         f"--spring.datasource.url=jdbc:postgresql://{database_address}/cex", f"--server.port={platform_port}",
-        "--server.address=127.0.0.1", f"--jwt.secret={secret}", "--bot.bot-count=0",
+        "--server.address=127.0.0.1", f"--jwt.secret={secret}", "--bot.bot-count=0", "--order.dispatch.enabled=false",
         "--bot.binance-ws-url=ws://127.0.0.1:1", f"--spring.kafka.bootstrap-servers={kafka.bootstrap}",
         "--spring.kafka.listener.auto-startup=false", "--spring.kafka.producer.properties.max.block.ms=500",
         f"--engine.http.url=http://127.0.0.1:{proxy.server_port}", "--engine.http.timeout=300",
-        "--spring.jpa.hibernate.ddl-auto=update"], "durable-acceptance-platform.log")
+        "--spring.jpa.hibernate.ddl-auto=update"]
+    platform, platform_log = start(platform_command, "durable-acceptance-platform.log")
     ready(platform, f"http://127.0.0.1:{platform_port}/swagger-ui/index.html", platform_log)
     sql((ROOT / "Cex-Engine/schema/order_receipts.sql").read_text())
     sql("INSERT INTO user_balances(user_id,mint_address,available,locked,created_at,updated_at) VALUES(101,'USDT',1000,0,now(),now())")
@@ -220,6 +230,40 @@ try:
         assert "output_completed" not in restart_log.read_text()
         evidence["checks"].append({"case": "restart_replays_wal_and_deduplicates", "health": 200,
                                     "duplicate_http": replayed, "duplicate_execution": False})
+        # 전송 전 실패한 새 주문을 만들고 플랫폼 프로세스 자체를 종료한다.
+        LoseResponse.block_forward = True
+        missing, not_sent = http(f"http://127.0.0.1:{platform_port}/api/cex/orders", dict(payload,amount="1"),
+                                 {**headers,"Idempotency-Key":str(uuid4())})
+        assert missing == 202, (missing,not_sent)
+        not_sent_id=int(not_sent["orderId"])
+        assert sql("SELECT count(*) FROM engine_order_receipts") == "2"
+        assert sql("SELECT available::text||'|'||locked::text FROM user_balances WHERE user_id=101") == "600.000000000|400.000000000"
+        stop(platform)
+        # 테스트 소유 행의 기한만 앞당긴다. 원본·예약·저널은 바꾸지 않는다.
+        sql("UPDATE order_dispatches SET next_attempt_at='1970-01-01' WHERE confirmed_at IS NULL")
+        LoseResponse.block_forward=False
+        recovery_command=[value for value in platform_command if value!="--order.dispatch.enabled=false"]
+        recovery_command.append("--order.dispatch.enabled=true")
+        recovered_platform,recovery_log=start(recovery_command,"durable-acceptance-platform-recovery.log")
+        ready(recovered_platform,f"http://127.0.0.1:{platform_port}/swagger-ui/index.html",recovery_log)
+        deadline=time.monotonic()+20
+        while sql("SELECT count(*) FROM order_dispatches WHERE confirmed_at IS NULL")!="0":
+            if time.monotonic()>deadline: raise AssertionError("플랫폼 재시작 뒤 자동 전송 미완료")
+            time.sleep(0.1)
+        assert sql("SELECT count(*) FROM engine_order_receipts") == "3"
+        assert sql("SELECT count(*) FROM orders") == "3"
+        assert sql("SELECT available::text||'|'||locked::text FROM user_balances WHERE user_id=101") == "600.000000000|400.000000000"
+        original=[body for body in forwarded_bodies if body["order_id"]==order_id]
+        assert len(original)==2 and original[0]==original[1],original
+        newly_sent=[body for body in forwarded_bodies if body["order_id"]==not_sent_id]
+        assert len(newly_sent)==1,newly_sent
+        confirmed,detail=http(f"http://127.0.0.1:{platform_port}/api/cex/orders/{order_id}",headers=headers)
+        assert confirmed==200 and detail["order"]["submissionStatus"]=="recorded",detail
+        deadline=time.monotonic()+5
+        while restart_log.read_text().count("output_completed")<1 and time.monotonic()<deadline: time.sleep(0.1)
+        assert restart_log.read_text().count("output_completed")==1
+        evidence["checks"].append({"case":"platform_restart_recovers_lost_ack_with_same_original", "attempts":len(original),"duplicate_execution":False})
+        evidence["checks"].append({"case":"platform_restart_recovers_before_engine_delivery", "order_id":not_sent_id,"receipts":3,"available":"600","locked":"400","scheduler":True})
 finally:
     for process in reversed(processes):
         stop(process)
