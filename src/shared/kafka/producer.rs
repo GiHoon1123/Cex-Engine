@@ -192,6 +192,16 @@ mod tests {
             base_mint: "SOL".to_string(),
             quote_mint: "USDT".to_string(),
             timestamp: Utc::now(),
+            // 현재 체결 이벤트 스키마에는 잔고 스냅샷도 필수다.
+            // 이 예제는 100 USDT로 1 SOL을 체결한 직후의 잔고를 표현한다.
+            buyer_base_available: Decimal::ONE,
+            buyer_base_locked: Decimal::ZERO,
+            buyer_quote_available: Decimal::ZERO,
+            buyer_quote_locked: Decimal::ZERO,
+            seller_base_available: Decimal::ZERO,
+            seller_base_locked: Decimal::ZERO,
+            seller_quote_available: Decimal::new(100, 0),
+            seller_quote_locked: Decimal::ZERO,
         };
         let result = producer.publish_trade_executed(&event).await;
         assert!(result.is_ok());

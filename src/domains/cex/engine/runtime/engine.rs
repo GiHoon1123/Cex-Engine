@@ -677,6 +677,9 @@ impl HighPerformanceEngine {
             order,
             self.wal_tx.as_ref(),
             self.db_tx.as_ref(),
+            // 운영 경로와 같은 인자 순서를 유지한다. Bench 모드에서는 생성자에서
+            // Kafka Producer를 만들지 않으므로 이 값은 None이다.
+            self.kafka_producer.as_ref(),
             &self.orderbooks,
             &self.matcher,
             &self.executor,
