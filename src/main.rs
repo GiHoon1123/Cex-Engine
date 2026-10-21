@@ -16,7 +16,6 @@ use crate::shared::services::AppState;
 
 // Import models for OpenAPI schema
 // use crate::domains::swap::models::*;
-// use crate::domains::auth::models::*;
 // use crate::domains::wallet::models::*;
 use crate::domains::cex::models::*;
 
@@ -30,17 +29,6 @@ use crate::domains::cex::models::*;
         // crate::domains::swap::handlers::swap_handler::get_quote,
         // crate::domains::swap::handlers::swap_handler::create_swap_transaction,
         // crate::domains::swap::handlers::token_handler::search_tokens,
-        // crate::domains::auth::handlers::auth_handler::signup,
-        // crate::domains::auth::handlers::auth_handler::signin,
-        // crate::domains::auth::handlers::auth_handler::refresh,
-        // crate::domains::auth::handlers::auth_handler::logout,
-        // crate::domains::auth::handlers::auth_handler::get_me,
-        // crate::domains::wallet::handlers::wallet_handler::create_wallet,
-        // crate::domains::wallet::handlers::wallet_handler::get_wallet,
-        // crate::domains::wallet::handlers::wallet_handler::get_user_wallets,
-        // crate::domains::wallet::handlers::wallet_handler::get_balance,
-        // crate::domains::wallet::handlers::wallet_handler::transfer_sol,
-        // crate::domains::wallet::handlers::wallet_handler::get_transaction_status,
         // crate::domains::cex::handlers::balance_handler::get_all_balances,
         // crate::domains::cex::handlers::balance_handler::get_balance,
         // crate::domains::cex::handlers::order_handler::get_order,
@@ -64,14 +52,6 @@ use crate::domains::cex::models::*;
         // SwapTransactionRequest,
         // SwapTransactionResponse,
         // Transaction,
-        // SignupRequest,
-        // SignupResponse,
-        // SigninRequest,
-        // SigninResponse,
-        // RefreshTokenRequest,
-        // RefreshTokenResponse,
-        // LogoutRequest,
-        // UserResponse,
         // CreateWalletResponse,
         // WalletResponse,
         // WalletsResponse,
@@ -98,13 +78,9 @@ use crate::domains::cex::models::*;
         // AllPositionsResponse,
         // TradeSummary,
     )),
-    // modifiers(
-    //     &SecurityAddon
-    // ),
     tags(
         // (name = "Swap", description = "Swap API endpoints (Jupiter integration)"),
         // (name = "Tokens", description = "Token search API endpoints"),
-        // (name = "Auth", description = "Authentication API endpoints"),
         // (name = "Wallets", description = "Wallet API endpoints (Solana wallet management)"),
         // (name = "CEX Balances", description = "CEX Exchange balance API endpoints"),
         (name = "CEX Orders", description = "CEX Exchange order API endpoints"),
@@ -119,25 +95,6 @@ use crate::domains::cex::models::*;
     )
 )]
 struct ApiDoc;
-
-// Security scheme 정의: Swagger UI에서 "Authorize" 버튼 추가
-// struct SecurityAddon;
-// 
-// impl utoipa::Modify for SecurityAddon {
-//     fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
-//         if let Some(components) = openapi.components.as_mut() {
-//             components.add_security_scheme(
-//                 "BearerAuth",
-//                 utoipa::openapi::security::SecurityScheme::Http(
-//                     utoipa::openapi::security::HttpBuilder::new()
-//                         .scheme(utoipa::openapi::security::HttpAuthScheme::Bearer)
-//                         .bearer_format("JWT")
-//                         .build(),
-//                 ),
-//             )
-//         }
-//     }
-// }
 
 #[tokio::main]
 async fn main() {

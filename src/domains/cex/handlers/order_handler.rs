@@ -21,7 +21,8 @@ use axum::{
 /// 새로운 주문을 생성합니다.
 /// 
 /// # Authentication
-/// JWT 토큰 필요 (Bearer token)
+/// Java 플랫폼이 사용자 인증을 담당하고 요청 본문의 user_id를 전달한다.
+/// 엔진은 사용자 JWT를 검증하지 않으므로, 서비스 간 접근 제한이 별도로 필요하다.
 /// 
 /// # Request Body
 /// - order_type: "buy" 또는 "sell"
@@ -82,7 +83,8 @@ pub async fn create_order(
 /// 대기 중이거나 부분 체결된 주문을 취소합니다.
 /// 
 /// # Authentication
-/// JWT 토큰 필요 (본인 주문만 취소 가능)
+/// Java 플랫폼이 인증한 사용자의 user_id를 쿼리로 전달한다.
+/// 엔진 서비스는 해당 ID와 주문 소유자를 비교하지만 호출자 신원을 검증하지 않는다.
 /// 
 /// # Path Parameters
 /// - order_id: 취소할 주문 ID

@@ -41,18 +41,8 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.0", features = ["serde", "v4"] }
 rust_decimal = { version = "1.33", features = ["serde-with-str"] }  # For precise decimal calculations (orders, balances)
 
-# Password hashing
-argon2 = "0.5"
-
 # Base64 encoding (for private key storage)
 base64 = "0.21"
-
-# JWT (JSON Web Tokens)
-jsonwebtoken = "9.2"
-
-# Crypto (for token hashing)
-sha2 = "0.10"
-rand = "0.8"
 
 # High-performance channels (Lock-free Ring Buffer)
 crossbeam = "0.8"
@@ -84,7 +74,9 @@ hyper-util = { version = "0.1", features = ["tokio"] }
 rdkafka = { version = "0.36", features = ["cmake-build", "ssl-vendored"] }
 
 [dev-dependencies]
-# 테스트용
+# 이미 사용하는 Tower의 테스트 유틸리티를 활성화한다.
+# `oneshot`으로 포트를 열지 않고 실제 Axum 라우터에 요청을 보낼 수 있다.
+tower = { version = "0.4", features = ["util"] }
 
 [[bench]]
 name = "tps_benchmark"
