@@ -108,7 +108,7 @@ python3 scripts/verify_durable_acceptance.py
 
 ## 관련 기록
 
-- 구현·테스트 커밋: `6eb00d3` — 거래 상태의 워커 이동, 명령 핸들 분리, 입력 큐 포화 처리와 회귀 테스트.
+- 구현·테스트 커밋: `097ce20` — 거래 상태의 워커 이동, 명령 핸들 분리, 입력 큐 포화 처리와 회귀 테스트.
 
 - 선행: [신규 주문 메모리 확정](006-atomic-order-memory-commit.md).
 - 진단: [엔진 설계 의도와 현재 구현의 차이](../../../docs/reviews/2026-10-21-engine-design-identity-audit.md).

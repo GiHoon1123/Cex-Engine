@@ -127,7 +127,7 @@ python3 scripts/verify_engine_output.py
 
 ## 관련 기록
 
-- 구현·테스트 커밋: `edcd431` — 단일 출력 워커, 포화·실패·종료 처리와 격리 Kafka 검증.
+- 구현·테스트 커밋: `53ed345` — 단일 출력 워커, 포화·실패·종료 처리와 격리 Kafka 검증.
 
 - 선행: [단일 워커의 상태 독점 소유](007-single-owner-engine-state.md).
 - 진단: [엔진 설계 의도 검토](../../../docs/reviews/2026-10-21-engine-design-identity-audit.md).

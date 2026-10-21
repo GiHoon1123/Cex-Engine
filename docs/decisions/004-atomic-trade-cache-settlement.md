@@ -121,7 +121,7 @@ PATH=/usr/local/bin:$PATH python3 scripts/verify_durable_acceptance.py
 
 ## 관련 커밋과 참고 자료
 
-선행 영속 접수: `c491dcd`, 예약 중복 반영 제거: `11abc06`. 이번 변경: `33d299d`(캐시 원자 반영·정밀 계산·21개 테스트), `5cc89d0`(실패 후속 처리 중단·파이프라인 2개 테스트).
+선행 영속 접수: `06656c8`, 예약 중복 반영 제거: `27b7619`. 이번 변경: `d54be0a`(캐시 원자 반영·정밀 계산·21개 테스트), `c1087b8`(실패 후속 처리 중단·파이프라인 2개 테스트).
 
 - [num-bigint 공식 저장소](https://github.com/rust-num/num-bigint): 설치된 의존성·타입을 확인하고 0.4.6을 직접 사용했다. 새 패키지 버전을 추가하지 않았다.
 - [이전 접수 결정](003-durable-order-acceptance.md): 접수 확정과 실제 실행·정산 확정의 차이.
