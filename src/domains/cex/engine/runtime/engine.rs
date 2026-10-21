@@ -75,8 +75,8 @@ impl EngineMode {
 ///     ↓ order_rx.recv()
 /// Engine Thread (Core 0, 싱글 스레드)
 ///     ├─ OrderBook::add_order()
-///     ├─ Matcher::match_order()
-///     ├─ Executor::execute_trade()
+///     ├─ Matcher::plan_order()
+///     ├─ submission::apply()
 ///     └─ wal_tx.send()
 /// [crossbeam::channel] (Lock-free)
 ///     ↓ wal_rx.recv()
@@ -365,18 +365,9 @@ impl HighPerformanceEngine {
         // Matcher: 상태 없음 (stateless), Arc로 공유
         let matcher = Arc::new(Matcher::new());
         
-        // Executor: BalanceCache 포함, WAL Sender + DB Sender 전달
-        let executor = Arc::new(Mutex::new(Executor::new(
-            match mode {
-                EngineMode::Standard => Some(wal_tx_inner.clone()),
-                EngineMode::Bench => None,
-            },
-            match mode {
-                EngineMode::Standard => Some(db_tx_inner.clone()),
-                EngineMode::Bench => None,
-            },
-        )));
-        
+        // Executor는 실행 캐시만 소유한다. 외부 채널은 런타임이 관리한다.
+        let executor = Arc::new(Mutex::new(Executor::new()));
+
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         // 3. WAL 디렉토리 경로
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -590,14 +581,6 @@ impl HighPerformanceEngine {
         // 1. 실행 플래그 해제
         self.running.store(false, std::sync::atomic::Ordering::Relaxed);
         eprintln!("[Engine Stop] Running flag set to false");
-        
-        // 2. Executor의 채널 Sender 해제 (먼저 해제해야 채널이 닫힘)
-        // Executor가 가지고 있는 wal_sender와 db_sender도 drop해야 채널이 완전히 닫힙니다.
-        {
-            let mut executor = self.executor.lock();
-            executor.clear_channels();
-        }
-        eprintln!("[Engine Stop] Executor channels cleared");
         
         // 3. 채널 닫기 (스레드 루프 종료)
         // Sender를 drop하면 채널이 닫히고, Receiver의 recv()가 Err를 반환하여 루프가 종료됩니다.

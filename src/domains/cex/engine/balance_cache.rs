@@ -16,7 +16,7 @@
 
 use std::collections::HashMap;
 use rust_decimal::Decimal;
-use anyhow::{Result, bail};
+use anyhow::{Result, ensure};
 
 mod settlement;
 
@@ -153,43 +153,41 @@ impl BalanceCache {
         mint: &str,
         amount: Decimal,
     ) -> Result<()> {
-        let balance = self.get_balance_mut(user_id, mint);
-        
-        // 잔고 확인
-        if balance.available < amount {
-            bail!(
-                "Insufficient balance: user={}, mint={}, required={}, available={}",
-                user_id, mint, amount, balance.available
-            );
-        }
-        
-        // 잠금 실행
-        balance.available -= amount;
-        balance.locked += amount;
-        
+        self.change_reservation(user_id,mint,amount,true)
+    }
+
+    /// 취소·IOC 잔여·가격 개선 금액 해제. 두 결과를 검사한 뒤 한 행을 반영한다.
+    pub fn unlock_balance(&mut self,user_id:u64,mint:&str,amount:Decimal)->Result<()> {
+        self.change_reservation(user_id,mint,amount,false)
+    }
+
+    fn change_reservation(&mut self,user_id:u64,mint:&str,value:Decimal,lock:bool)->Result<()> {
+        use super::amount;
+        ensure!(value>Decimal::ZERO,"Reservation amount must be positive");
+        amount::units(value)?;
+        let balance=self.get_balance(user_id,mint).cloned().ok_or_else(||anyhow::anyhow!("Missing reservation balance"))?;
+        let (available,locked)=if lock {
+            (amount::subtract(balance.available,value)?,amount::add(balance.locked,value)?)
+        } else {(amount::add(balance.available,value)?,amount::subtract(balance.locked,value)?)};
+        self.set_balance(user_id,mint,available,locked);
         Ok(())
     }
-    
-    /// 잔고 잠금 해제 (주문 취소 시)
-    /// locked 차감 → available 증가
-    pub fn unlock_balance(
-        &mut self,
-        user_id: u64,
-        mint: &str,
-        amount: Decimal,
-    ) -> Result<()> {
-        let balance = self.get_balance_mut(user_id, mint);
-        
-        if balance.locked < amount {
-            bail!("Not enough locked balance to unlock");
+
+    /// 후보 계산에 필요한 계정만 복사한다. 없는 수신 계정은 정산이 성공할 때 생성한다.
+    pub(crate) fn copy_account_from(&mut self,source:&Self,user:u64,asset:&str) {
+        if self.get_balance(user,asset).is_none() {
+            if let Some(balance)=source.get_balance(user,asset) {
+                self.set_balance(user,asset,balance.available,balance.locked);
+            }
         }
-        
-        balance.locked -= amount;
-        balance.available += amount;
-        
-        Ok(())
     }
-    
+
+    /// 전체 후보가 검증된 뒤 영향받은 계정만 반영한다. 호출자는 주문장·Executor
+    /// 락을 함께 유지한다. 오류가 생길 수 있는 금액 변환은 이미 끝나 있어야 한다.
+    pub(crate) fn commit_prepared(&mut self,prepared:Self) {
+        for (key,balance) in prepared.balances { self.balances.insert(key,balance); }
+    }
+
     /// 초기 잔고 설정 (테스트용)
     pub fn set_balance(&mut self, user_id: u64, mint: &str, available: Decimal, locked: Decimal) {
         self.balances.insert(
@@ -234,3 +232,11 @@ impl BalanceCache {
     }
 }
 
+
+#[cfg(test)]
+impl BalanceCache {
+    /// 테스트에서 원본 Map 전체와 새 행 생성까지 비교한다. 제품 경로에서는 노출하지 않는다.
+    pub(crate) fn test_balances_snapshot(&self) -> HashMap<(u64, String), Balance> {
+        self.balances.clone()
+    }
+}

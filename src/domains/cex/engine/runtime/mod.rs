@@ -17,6 +17,7 @@ pub mod engine;
 pub mod threads;
 pub mod db_commands;
 mod startup;
+mod submission;
 #[cfg(any(test, feature = "bench_mode"))]
 pub mod bench_engine;
 

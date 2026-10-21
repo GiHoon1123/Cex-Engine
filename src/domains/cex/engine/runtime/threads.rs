@@ -373,11 +373,10 @@ pub fn engine_thread_loop(
 /// SubmitOrder 명령 처리
 /// 
 /// # 처리 과정
-/// 1. WAL 메시지 발행 (OrderCreated)
-/// 2. OrderBook에 추가
-/// 3. Matcher로 매칭 시도
-/// 4. 체결된 경우 Executor로 처리
-/// 5. MatchResult 목록을 response로 전송
+/// 1. 원본을 읽어 후보 매칭과 전체 잔액·예약 반환을 준비
+/// 2. 같은 락 아래에서 주문장·캐시를 메모리에 확정
+/// 3. 기존 DB·Kafka 후속 전달 (영속 확정과 메모리는 별도 경계)
+/// 4. response가 있을 때만 결과 반환. 영속 접수 HTTP는 실행 완료 증명이 아님
 fn handle_submit_order(
     order: OrderEntry,
     response: Option<tokio::sync::oneshot::Sender<Result<Vec<MatchResult>>>>,
@@ -400,265 +399,35 @@ fn handle_submit_order(
 }
 
 pub(crate) fn process_submit_order(
-    mut order: OrderEntry,
-    wal_tx: Option<&crossbeam::channel::Sender<WalEntry>>,
+    order: OrderEntry,
+    _wal_tx: Option<&crossbeam::channel::Sender<WalEntry>>,
     db_tx: Option<&crossbeam::channel::Sender<super::db_commands::DbCommand>>,
     kafka_producer: Option<&Arc<KafkaProducer>>,
     orderbooks: &Arc<RwLock<HashMap<TradingPair, OrderBook>>>,
     matcher: &Arc<Matcher>,
     executor: &Arc<Mutex<Executor>>,
 ) -> Result<Vec<MatchResult>> {
-    eprintln!("[Engine Thread] process_submit_order 시작: order_id={}, user_id={}, order_type={}, order_side={}, price={:?}, amount={}", 
-             order.id, order.user_id, order.order_type, order.order_side, order.price, order.amount);
-    // 1. TradingPair 찾기
-    let pair = TradingPair::new(order.base_mint.clone(), order.quote_mint.clone());
-    eprintln!("[Engine Thread] TradingPair 생성: base_mint={}, quote_mint={}", order.base_mint, order.quote_mint);
-    
-    // 2. 잔고 잠금 (주문 제출 전에 잠금)
-    {
-        let mut executor_guard = executor.lock();
-        let (lock_mint, lock_amount) = if order.order_type == "buy" {
-            // 매수: quote_mint 잠금
-            // 지정가: price * amount
-            // 시장가: quote_amount
-            let amount = if order.order_side == "market" {
-                // 시장가 매수: quote_amount 사용
-                order.quote_amount.unwrap_or(rust_decimal::Decimal::ZERO)
-            } else {
-                // 지정가 매수: price * amount
-                order.price.unwrap_or(rust_decimal::Decimal::ZERO) * order.amount
-            };
-            (&order.quote_mint, amount)
-        } else {
-            // 매도: base_mint 잠금 (amount만큼)
-            (&order.base_mint, order.amount)
-        };
-        
-        if let Err(e) = executor_guard.lock_balance_for_order(order.id, order.user_id, lock_mint, lock_amount) {
-            // 에러 상세 정보 출력
-            if let Some(balance) = executor_guard.balance_cache().get_balance(order.user_id, lock_mint) {
-                eprintln!(
-                    "Lock failed: user_id={}, mint={}, available={}, locked={}, required={}, error={}",
-                    order.user_id, lock_mint, balance.available, balance.locked, lock_amount, e
-                );
-            } else {
-                eprintln!(
-                    "Lock failed: user_id={}, mint={}, required={}, error={} (balance not found in cache)",
-                    order.user_id, lock_mint, lock_amount, e
-                );
-            }
-            return Err(anyhow::anyhow!("Failed to lock balance: {}", e));
-        }
-        
-        // 플랫폼이 원본 접수와 같은 트랜잭션에서 DB 예약을 이미 커밋했다.
-        // 여기서는 실행용 캐시만 예약한다. 같은 delta를 DB Writer에 다시 보내면
-        // available·locked가 두 번 변하므로 DB 예약 명령은 발행하지 않는다.
-    }
-    
-    // 3. WAL 메시지 발행 (OrderCreated) - 잔고 잠금 후! - 주석 처리됨 (WAL 비활성화)
-    // WAL 로그 쓰기 비활성화 (디스크 공간 부족 문제로 인해 임시 비활성화)
-    /*
-    if let Some(tx) = wal_tx {
-        let wal_entry = WalEntry::OrderCreated {
-            order_id: order.id,
-            user_id: order.user_id,
-            order_type: order.order_type.clone(),
-            base_mint: order.base_mint.clone(),
-            quote_mint: order.quote_mint.clone(),
-            price: order.price.map(|p| p.to_string()),
-            amount: order.amount.to_string(),
-            timestamp: order.created_at.timestamp_millis(),
-        };
-        let _ = tx.send(wal_entry);
-    }
-    */
-    
-    // 3-1. 주문을 DB에 저장 (주석 처리됨)
-    // Java API에서 이미 주문을 저장했으므로, Rust 엔진은 주문을 다시 저장하지 않음
-    // 모든 주문은 Java API를 통해 생성되므로, Rust 엔진의 InsertOrder는 불필요함
-    
-    // 시장가 주문 여부 확인 (다른 곳에서 사용됨)
-    let is_market_order = order.order_side == "market";
-    
-    /*
-    // 주문 ID는 DB Writer가 INSERT 시 auto increment로 생성됨
-    // 시장가 주문은 처음에 InsertOrder를 보내지 않고, 모든 처리가 끝난 후 최종 상태로 한 번만 전송
-    if !is_market_order {
-        // 지정가 주문만 처음에 InsertOrder 전송 (pending 상태)
-    if let Some(tx) = db_tx {
-        let db_cmd = super::db_commands::DbCommand::InsertOrder {
-                order_id: order.id,  // 임시 ID (0), DB Writer가 실제 ID 생성
-            user_id: order.user_id,
-            order_type: order.order_type.clone(),
-            order_side: order.order_side.clone(),
-            base_mint: order.base_mint.clone(),
-            quote_mint: order.quote_mint.clone(),
-            price: order.price,
-            amount: order.amount,
-            created_at: order.created_at,
-                status: None, // None이면 "pending"
-                filled_amount: None, // None이면 0
-                filled_quote_amount: None, // None이면 0
-        };
-            let _ = tx.send(db_cmd); // Non-blocking, 배치로 처리됨
-        }
-    }
-    */
-    
-    // 4. 시장가 주문 여부 및 초기 잔고 잠금 정보 저장 (order 이동 전)
-    let initial_quote_amount = order.quote_amount;
-    let initial_amount = order.amount;
-    
-    // 5. OrderBook 가져오기 및 매칭 (락 안에서 수행)
-    let (matches, order_after_match) = {
-        let mut orderbooks_guard = orderbooks.write();
-        let orderbook = orderbooks_guard.entry(pair.clone()).or_insert_with(|| OrderBook::new(pair.clone()));
-        
-        // 6. Matcher로 매칭 시도 (먼저 매칭 시도)
-        eprintln!("[Engine Thread] 매칭 시작: order_id={}, order_type={}, order_side={}, price={:?}, amount={}, user_id={}", 
-                 order.id, order.order_type, order.order_side, order.price, order.amount, order.user_id);
-        let matches = matcher.match_order(&mut order, orderbook);
-        eprintln!("[Engine Thread] 매칭 완료: order_id={}, matches_count={}", order.id, matches.len());
-        if !matches.is_empty() {
-            for (idx, m) in matches.iter().enumerate() {
-                eprintln!("[Engine Thread] 매칭 {}: buy_order_id={}, sell_order_id={}, price={}, amount={}, buyer_id={}, seller_id={}", 
-                         idx, m.buy_order_id, m.sell_order_id, m.price, m.amount, m.buyer_id, m.seller_id);
-            }
-        }
-        
-        // 7. 매칭 후 남은 주문이 있으면 OrderBook에 추가
-        // 시장가 주문은 완전히 체결되지 않으면 오더북에 추가하지 않음 (시장가 주문은 즉시 체결되어야 함)
-        // 지정가 주문은 부분 체결 후 남은 수량이 있으면 오더북에 추가
-        if order.order_side == "limit" {
-            // 지정가 주문: 남은 수량이 있으면 오더북에 추가
-            let has_remaining = if let Some(remaining_quote) = order.remaining_quote_amount {
-                remaining_quote > Decimal::ZERO
-            } else {
-                order.remaining_amount > Decimal::ZERO
-            };
-            
-            if has_remaining {
-                orderbook.add_order(order.clone()); // order는 나중에 사용하므로 클론
-            }
-        }
-        // 시장가 주문은 완전히 체결되지 않으면 오더북에 추가하지 않음
-        
-        // order 상태 저장 (매칭 후)
-        let order_after_match = order.clone();
-        (matches, order_after_match)
+    let is_market_order=order.order_side=="market";
+    let applied={
+        // 취소와 같은 orderbooks → Executor 순서다. 준비 도중 다른 마켓의
+        // 공통 자산 쓰기나 HTTP 주문장 조회가 중간 상태를 관찰하지 못한다.
+        let mut books=orderbooks.write();
+        let mut executor=executor.lock();
+        super::submission::apply(order,&mut books,matcher,&mut executor)?
     };
-    
-    // 8. 시장가 주문 처리 (IOC 방식: 오더북에 있는 만큼만 체결, 남은 잔량은 즉시 취소)
-    // 시장가 주문은 부분 체결되어도 성공으로 처리하고 'filled' 상태로 저장
-    // 모든 매칭 완료 후 DB 업데이트 명령을 한 번에 전송 (원자성 보장)
+    let order_after_match=applied.order;
+    let matches=applied.matches;
+    // 이 아래는 기존 후속 전달 경계다. 메모리 확정과 DB·Kafka는 아직 한 트랜잭션이 아니다.
+    // 시장가의 기존 후속 이벤트 전달. 메모리 확정은 위에서 완료됐다.
     if is_market_order {
-        use std::collections::HashMap;
         use chrono::Utc;
         
         // 디버깅: 매칭 결과 확인
         eprintln!("[Market Order Debug] order_id={}, initial_matches={}, remaining_quote_amount={:?}, remaining_amount={}", 
                  order_after_match.id, matches.len(), order_after_match.remaining_quote_amount, order_after_match.remaining_amount);
         
-        // 체결 처리 (성공한 매칭만 추적, DB 명령은 건너뛰기)
-        let mut successful_matches = Vec::new();
-        let mut total_quote_used = Decimal::ZERO;
-        let mut total_amount_used = Decimal::ZERO;
-        
-        {
-            let mut executor_guard = executor.lock();
-            for match_result in &matches {
-                // skip_db_updates=true로 설정하여 DB 명령 전송 건너뛰기
-                // 캐시 정산 실패를 건너뛰고 정상 종료·예약 해제·이벤트 발행으로
-                // 진행하지 않는다. 주문장·여러 체결의 전체 롤백은 별도 후속 경계다.
-                executor_guard.execute_trade(match_result, true)
-                    .context("Market trade settlement failed")?;
-                successful_matches.push(match_result.clone());
-                if order_after_match.order_type == "buy" {
-                    total_quote_used += match_result.price * match_result.amount;
-                } else {
-                    total_amount_used += match_result.amount;
-                }
-            }
-        }
-
-        // 디버깅: 성공한 매칭 확인
-        eprintln!("[Market Order Debug] order_id={}, successful_matches={}, total_quote_used={}, total_amount_used={}", 
-                 order_after_match.id, successful_matches.len(), total_quote_used, total_amount_used);
-        
-        // 성공한 매칭만 사용하여 주문 상태 업데이트
-        let matches = successful_matches;
-        
-        // 남은 잔고 잠금 해제 (IOC: 남은 잔량은 즉시 취소)
-        // 실제로 사용된 금액을 기준으로 계산 (성공한 매칭만 반영)
-        let unlock_mint;
-        let unlock_amount;
-        {
-            let mut executor_guard = executor.lock();
-            let (mint, amount) = if order_after_match.order_type == "buy" {
-                // 시장가 매수: 초기 quote_amount에서 실제 사용된 금액을 뺀 나머지 잠금 해제
-                let initial_quote = initial_quote_amount.unwrap_or(Decimal::ZERO);
-                let unlock = initial_quote - total_quote_used;
-                (&order_after_match.quote_mint, unlock)
-            } else {
-                // 시장가 매도: 초기 amount에서 실제 사용된 수량을 뺀 나머지 잠금 해제
-                let unlock = initial_amount - total_amount_used;
-                (&order_after_match.base_mint, unlock)
-            };
-            
-            unlock_mint = mint.to_string();
-            unlock_amount = amount;
-            
-            if unlock_amount > Decimal::ZERO {
-                // 메모리 잔고 잠금 해제
-                if let Err(e) = executor_guard.unlock_balance_for_cancel(
-                    order_after_match.id,
-                    order_after_match.user_id,
-                    mint,
-                    unlock_amount,
-                ) {
-                    eprintln!("Failed to unlock balance: {}", e);
-                }
-            }
-        }
-        
-        // 모든 매칭 완료 후 DB 업데이트 명령을 한 번에 전송
-                    if let Some(tx) = db_tx {
-            // 잔고 변경 집계: (user_id, mint) -> (available_delta, locked_delta)
-            let mut balance_changes: HashMap<(u64, String), (Decimal, Decimal)> = HashMap::new();
-            
-            // 각 매칭의 잔고 변경을 집계
-            for match_result in &matches {
-                let total_value = match_result.price * match_result.amount;
-                
-                // 매수자 USDT: locked 감소
-                let entry = balance_changes.entry((match_result.buyer_id, match_result.quote_mint.clone()))
-                    .or_insert((Decimal::ZERO, Decimal::ZERO));
-                entry.1 -= total_value; // locked 감소
-                
-                // 매도자 USDT: available 증가
-                let entry = balance_changes.entry((match_result.seller_id, match_result.quote_mint.clone()))
-                    .or_insert((Decimal::ZERO, Decimal::ZERO));
-                entry.0 += total_value; // available 증가
-                
-                // 매도자 SOL: locked 감소
-                let entry = balance_changes.entry((match_result.seller_id, match_result.base_mint.clone()))
-                    .or_insert((Decimal::ZERO, Decimal::ZERO));
-                entry.1 -= match_result.amount; // locked 감소
-                
-                // 매수자 SOL: available 증가
-                let entry = balance_changes.entry((match_result.buyer_id, match_result.base_mint.clone()))
-                    .or_insert((Decimal::ZERO, Decimal::ZERO));
-                entry.0 += match_result.amount; // available 증가
-            }
-            
-            // 남은 잔고 잠금 해제 반영
-            if unlock_amount > Decimal::ZERO {
-                let entry = balance_changes.entry((order_after_match.user_id, unlock_mint.clone()))
-                    .or_insert((Decimal::ZERO, Decimal::ZERO));
-                entry.0 += unlock_amount; // available 증가
-                entry.1 -= unlock_amount; // locked 감소
-            }
-            
+        // 기존 시장가 이벤트 전달 조건을 유지한다. 여기서는 DB 커밋을 확인하지 않는다.
+        if db_tx.is_some() {
             // 1. Kafka 이벤트 발행 (모든 매칭)
             // Trade는 Java DB에서 저장하므로 Rust에서는 DB 명령 전송하지 않음
             // trade_id는 Java DB에서 auto increment로 생성되므로 Rust에서 보내지 않음
@@ -758,80 +527,10 @@ pub(crate) fn process_submit_order(
                 }
             }
             
-            // [비활성화] Java 서버가 잔고의 Source of Truth가 되므로 엔진에서 DB 업데이트 비활성화
-            // 잔고 업데이트는 Kafka 이벤트를 통해 Java Consumer가 처리합니다.
-            /*
-            // 2. UpdateBalance 명령 전송 (집계된 잔고 변경)
-            for ((user_id, mint), (available_delta, locked_delta)) in balance_changes {
-                // delta가 0이 아닌 경우만 전송
-                if available_delta != Decimal::ZERO || locked_delta != Decimal::ZERO {
-                    let db_cmd = super::db_commands::DbCommand::UpdateBalance {
-                        user_id,
-                        mint,
-                        available_delta: if available_delta != Decimal::ZERO { Some(available_delta) } else { None },
-                        locked_delta: if locked_delta != Decimal::ZERO { Some(locked_delta) } else { None },
-                    };
-                    if let Err(e) = tx.send(db_cmd) {
-                        eprintln!("Failed to send UpdateBalance command: user_id={}, error={}", user_id, e);
-                    }
-                }
-            }
-            */
-            
-            // 3. 시장가 주문을 최종 상태로 InsertOrder 한 번만 전송 (주석 처리됨)
-            // Java API에서 이미 주문을 저장했으므로, Rust 엔진은 주문을 다시 저장하지 않음
-            /*
-            let total_filled_amount: Decimal = matches.iter()
-                .map(|m| m.amount)
-                .sum();
-            let total_filled_quote_amount: Decimal = matches.iter()
-                .map(|m| m.price * m.amount)
-                .sum();
-            
-            // 체결이 있으면 "filled", 없으면 "cancelled"
-            let final_status = if total_filled_amount > Decimal::ZERO {
-                "filled".to_string()
-            } else {
-                "cancelled".to_string()
-            };
-            
-            let db_cmd = super::db_commands::DbCommand::InsertOrder {
-                order_id: order_after_match.id,
-                user_id: order_after_match.user_id,
-                order_type: order_after_match.order_type.clone(),
-                order_side: order_after_match.order_side.clone(),
-                base_mint: order_after_match.base_mint.clone(),
-                quote_mint: order_after_match.quote_mint.clone(),
-                price: order_after_match.price,
-                amount: order_after_match.amount,
-                created_at: order_after_match.created_at,
-                status: Some(final_status),
-                filled_amount: Some(total_filled_amount),
-                filled_quote_amount: Some(total_filled_quote_amount),
-            };
-            if let Err(e) = tx.send(db_cmd) {
-                eprintln!(
-                    "[Order Submit] Failed to send InsertOrder command for market order {}: {}",
-                    order_after_match.id, e,
-                );
-            }
-            */
         }
-        
+
         // 시장가 주문 처리 완료 (IOC 방식: 체결되면 filled, 안 되면 cancelled)
         return Ok(matches);
-    }
-    
-    // 8. 체결 처리 (정상 케이스: 지정가 주문)
-    // 지정가 주문은 각 매칭마다 DB 명령을 전송 (기존 방식 유지)
-    {
-        let mut executor_guard = executor.lock();
-        for match_result in &matches {
-            // skip_db_updates=false로 설정하여 각 매칭마다 DB 명령 전송
-            // 실패한 체결을 Kafka·주문 상태 갱신으로 정상 전파하지 않는다.
-            executor_guard.execute_trade(match_result, false)
-                .context("Limit trade settlement failed")?;
-        }
     }
     
     // 8-0. 지정가 주문 체결 시 Kafka 이벤트 발행 (모든 매칭)
@@ -949,12 +648,8 @@ pub(crate) fn process_submit_order(
         if is_partially_filled {
             // 부분 체결: 상태를 'partial'로 업데이트
             if let Some(tx) = db_tx {
-                let total_filled_amount: Decimal = matches.iter()
-                    .map(|m| m.amount)
-                    .sum();
-                let total_filled_quote_amount: Decimal = matches.iter()
-                    .map(|m| m.price * m.amount)
-                    .sum();
+                let total_filled_amount = applied.total_amount;
+                let total_filled_quote_amount = applied.total_quote;
                 
                 let db_cmd = super::db_commands::DbCommand::UpdateOrderStatus {
                     order_id: order_after_match.id,
@@ -972,105 +667,13 @@ pub(crate) fn process_submit_order(
         }
     }
     
-    // 9. 완전히 체결된 지정가 주문의 남은 locked 잔고 해제
-    // ============================================
-    // 주문 생성 시 lock한 금액과 실제 체결 금액이 다를 수 있음
-    // 
-    // 예시 (지정가 매수 완전 체결):
-    // - 주문 생성 시: price * amount = 100 * 10 = 1000 USDT를 lock
-    // - 실제 체결: 100 * 10 = 1000 USDT 체결 (remaining_amount = 0, 완전 체결)
-    // - transfer로 1000 USDT를 locked에서 차감
-    // - 남은 locked = 0 (정확히 일치)
-    // 
-    // 하지만 가격이 변동하거나 부분 체결 후 완전 체결되면 차이가 있을 수 있음
-    // 따라서 완전히 체결된 주문의 경우 남은 locked를 unlock해야 함
-    // 
-    // 참고: 시장가 주문은 위에서 이미 처리됨 (IOC 방식)
-    // ============================================
-    
-    // 완전 체결 판단 로직 (지정가 주문만)
-    // 지정가 주문: remaining_amount가 0이면 완전 체결
-    let is_fully_filled_after_match = order_after_match.remaining_amount == Decimal::ZERO;
-    
-    // 완전히 체결된 주문의 경우, 남은 locked 잔고 해제
-    if is_fully_filled_after_match {
-        let mut executor_guard = executor.lock();
-        
-        // 주문 타입에 따라 unlock할 mint와 amount 계산
-        let (unlock_mint, unlock_amount) = if order_after_match.order_type == "buy" {
-            // 매수 주문: quote_mint (USDT) 잠금 해제
-            // lock한 금액과 실제 체결 금액의 차이를 계산
-            let total_quote_used: Decimal = matches.iter()
-                .map(|m| m.price * m.amount)
-                .sum();
-            
-            if order_after_match.order_side == "market" {
-                // 시장가 매수: initial_quote_amount에서 실제 체결 금액을 뺀 나머지
-                // remaining_quote_amount가 None이어도 처리 가능
-                let initial_locked = initial_quote_amount.unwrap_or(Decimal::ZERO);
-                let remaining_locked = initial_locked - total_quote_used;
-                (&order_after_match.quote_mint, remaining_locked)
-            } else {
-                // 지정가 매수: price * initial_amount에서 실제 체결 금액을 뺀 나머지
-                let initial_locked = order_after_match.price.unwrap_or(Decimal::ZERO) * initial_amount;
-                let remaining_locked = initial_locked - total_quote_used;
-                (&order_after_match.quote_mint, remaining_locked)
-            }
-        } else {
-            // 매도 주문: base_mint (SOL 등) 잠금 해제
-            // lock한 수량과 실제 체결 수량의 차이를 계산
-            let total_amount_used: Decimal = matches.iter()
-                .map(|m| m.amount)
-                .sum();
-            let remaining_locked = initial_amount - total_amount_used;
-            (&order_after_match.base_mint, remaining_locked)
-        };
-        
-        // 남은 locked가 있으면 unlock (0보다 큰 경우에만)
-        if unlock_amount > Decimal::ZERO {
-            if let Err(e) = executor_guard.unlock_balance_for_cancel(
-                order_after_match.id,
-                order_after_match.user_id,
-                unlock_mint,
-                unlock_amount,
-            ) {
-                eprintln!(
-                    "[Order Submit] Failed to unlock remaining balance for fully filled order {}: user_id={}, mint={}, amount={}, error={}",
-                    order_after_match.id, order_after_match.user_id, unlock_mint, unlock_amount, e
-                );
-            } else {
-                // [비활성화] Java 서버가 잔고의 Source of Truth가 되므로 엔진에서 DB 업데이트 비활성화
-                // 잔고 업데이트는 Kafka 이벤트를 통해 Java Consumer가 처리합니다.
-                /*
-                // Unlock 성공 시 DB Writer로 잔고 업데이트 명령 전송
-                // 남은 locked를 available로 이동 (available 증가, locked 감소)
-                if let Some(tx) = db_tx {
-                    let db_cmd = super::db_commands::DbCommand::UpdateBalance {
-                        user_id: order_after_match.user_id,
-                        mint: unlock_mint.to_string(),
-                        available_delta: Some(unlock_amount), // available 증가
-                        locked_delta: Some(-unlock_amount), // locked 감소
-                    };
-                    if let Err(e) = tx.send(db_cmd) {
-                        eprintln!(
-                            "[Order Submit] Failed to send UpdateBalance command for unlock: order_id={}, user_id={}, mint={}, amount={}, error={}",
-                            order_after_match.id, order_after_match.user_id, unlock_mint, unlock_amount, e
-                        );
-                    }
-                }
-                */
-            }
-        }
-        
+    // 예약 잔여·가격 개선 반환도 메모리 확정 전에 이미 검증·반영했다.
+    if order_after_match.remaining_amount==Decimal::ZERO {
         // 완전히 체결된 주문의 상태를 'filled'로 업데이트
         // DB Writer로 주문 상태 업데이트 명령 전송
         if let Some(tx) = db_tx {
-            let total_filled_amount: Decimal = matches.iter()
-                .map(|m| m.amount)
-                .sum();
-            let total_filled_quote_amount: Decimal = matches.iter()
-                .map(|m| m.price * m.amount)
-                .sum();
+            let total_filled_amount = applied.total_amount;
+            let total_filled_quote_amount = applied.total_quote;
             
             let db_cmd = super::db_commands::DbCommand::UpdateOrderStatus {
                 order_id: order_after_match.id,
@@ -1378,7 +981,7 @@ fn handle_lock_balance(
 ) {
     let mut executor = executor.lock();
     
-    // WAL 메시지는 executor.lock_balance_for_order에서 발행하므로 여기서는 제거 (중복 방지)
+    // 현재 Executor는 실행 캐시만 변경한다. 영속 결과·WAL 확정은 별도 후속 과제다.
     
     // 잔고 잠금
     match executor.lock_balance_for_order(0, user_id, &mint, amount) {

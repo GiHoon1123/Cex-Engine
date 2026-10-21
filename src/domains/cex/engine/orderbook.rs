@@ -13,7 +13,7 @@
 // - 같은 가격이면 시간 순서 (먼저 온 주문 우선)
 // =====================================================
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, VecDeque, HashMap};
 use rust_decimal::Decimal;
 use crate::domains::cex::engine::types::{OrderEntry, TradingPair};
 
@@ -58,6 +58,28 @@ impl OrderBookSide {
         None
     }
     
+    /// 이미 검증한 maker 변경을 큐 앞부분에 적용한다. 마지막 변경 뒤의 긴
+    /// 미체결 꼬리를 순회·복제하지 않는다. 건너뛴 자기 주문과 부분 체결은
+    /// 임시 prefix에 이동시킨 뒤 역순 push_front로 원래 FIFO 위치를 복원한다.
+    pub(crate) fn apply_prepared_orders(&mut self, changes:BTreeMap<Decimal,HashMap<u64,OrderEntry>>) {
+        for (price,mut changed) in changes {
+            let queue=self.orders.get_mut(&price).expect("planned price remains under write lock");
+            let before=queue.len();
+            let mut prefix=VecDeque::new();
+            while !changed.is_empty() {
+                let order=queue.pop_front().expect("planned maker remains under write lock");
+                match changed.remove(&order.id) {
+                    Some(next) if next.remaining_amount>Decimal::ZERO=>prefix.push_back(next),
+                    Some(_)=>{}, // 완전 체결된 maker만 제거한다.
+                    None=>prefix.push_back(order),
+                }
+            }
+            while let Some(order)=prefix.pop_back() {queue.push_front(order);}
+            self.total_orders-=before-queue.len();
+            if queue.is_empty() {self.orders.remove(&price);}
+        }
+    }
+
     /// 최선 가격 조회 (매수: 최고가, 매도: 최저가) - O(1)
     pub fn get_best_price(&self, is_buy: bool) -> Option<Decimal> {
         if is_buy {

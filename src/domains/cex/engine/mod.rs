@@ -16,6 +16,7 @@
 // =====================================================
 
 pub mod types;
+pub(crate) mod amount;
 pub mod mock;
 pub mod orderbook;
 pub mod matcher;
