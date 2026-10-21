@@ -326,6 +326,7 @@ mod ownership_handle_tests {
                 .unwrap();
             let errors = runtime.block_on(async {
                 let order = OrderEntry {
+                    fee_rate: rust_decimal::Decimal::ZERO,
                     id: 1,
                     user_id: 1,
                     order_type: "buy".into(),

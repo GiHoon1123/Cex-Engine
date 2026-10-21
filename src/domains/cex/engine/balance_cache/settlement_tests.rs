@@ -6,6 +6,8 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 
 fn trade() -> MatchResult {
     MatchResult {
+        buyer_fee_rate: rust_decimal::Decimal::ZERO,
+        seller_fee_rate: rust_decimal::Decimal::ZERO,
         buy_order_id: 1,
         sell_order_id: 2,
         buyer_id: 101,

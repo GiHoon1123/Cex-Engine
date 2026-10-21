@@ -210,6 +210,7 @@ pub async fn setup_orderbook(engine: &mut HighPerformanceEngine) {
         let amount = Decimal::new(100, 0); // 100 SOL
         
         let order = OrderEntry {
+            fee_rate: rust_decimal::Decimal::ZERO,
             id: user_id * 1000, // 고유 ID 생성
             user_id,
             order_type: "buy".to_string(),
@@ -240,6 +241,7 @@ pub async fn setup_orderbook(engine: &mut HighPerformanceEngine) {
         let amount = Decimal::new(100, 0); // 100 SOL
         
         let order = OrderEntry {
+            fee_rate: rust_decimal::Decimal::ZERO,
             id: user_id * 1000, // 고유 ID 생성
             user_id,
             order_type: "sell".to_string(),

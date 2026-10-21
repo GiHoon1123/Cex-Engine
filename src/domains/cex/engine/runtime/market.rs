@@ -196,6 +196,7 @@ mod tests {
     use crate::domains::cex::engine::types::OrderEntry;
     fn order(id: u64, user: u64, buy: bool, quantity: i64) -> OrderEntry {
         OrderEntry {
+            fee_rate: rust_decimal::Decimal::ZERO,
             id,
             user_id: user,
             order_type: if buy { "buy" } else { "sell" }.into(),

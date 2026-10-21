@@ -4,6 +4,7 @@ use super::super::{output::OutputBatch, threads};
 use super::*;
 fn order(id: u64) -> OrderEntry {
     OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id,
         user_id: 1,
         order_type: "buy".into(),

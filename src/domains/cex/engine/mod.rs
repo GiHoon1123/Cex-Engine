@@ -341,35 +341,6 @@ pub trait Engine: Send + Sync {
 // Utility Functions
 // =====================================================
 
-/// DB Order 모델을 Engine OrderEntry로 변환
-/// Convert DB Order to Engine OrderEntry
-/// 
-/// # Arguments
-/// * `order` - DB Order 모델
-/// 
-/// # Returns
-/// * `OrderEntry` - 엔진 내부 주문 엔트리
-/// 
-/// # Note
-/// Service 계층에서 DB Order를 엔진에 제출할 때 사용합니다.
-pub fn order_to_entry(order: &crate::domains::cex::models::order::Order) -> OrderEntry {
-    OrderEntry {
-        id: order.id,
-        user_id: order.user_id,
-        order_type: order.order_type.clone(),
-        order_side: order.order_side.clone(),
-        base_mint: order.base_mint.clone(),
-        quote_mint: order.quote_mint.clone(),
-        price: order.price,
-        amount: order.amount,
-        quote_amount: None, // DB에서 로드한 주문은 수량 기반으로 가정
-        filled_amount: order.filled_amount,
-        remaining_amount: order.amount - order.filled_amount,
-        remaining_quote_amount: None,
-        created_at: order.created_at,
-    }
-}
-
 /// Engine OrderEntry를 DB Order 모델로 변환
 /// Convert Engine OrderEntry to DB Order
 /// 

@@ -11,6 +11,7 @@ CREATE TABLE engine_order_receipts (
     price NUMERIC(30,9),
     amount NUMERIC(30,9),
     quote_amount NUMERIC(30,9),
+    fee_rate NUMERIC(10,6) NOT NULL CHECK (fee_rate >= 0 AND fee_rate < 1),
     accepted_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
     CHECK (order_id > 0)
 );

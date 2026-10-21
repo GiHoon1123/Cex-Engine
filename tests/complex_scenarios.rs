@@ -23,6 +23,7 @@ async fn test_multiple_limit_orders_one_market_order() {
     
     // TEST_USER_ID (1번)이 시장가로 6 SOL 매수
     let buy_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 60001,
         user_id: TEST_USER_ID,
         order_type: "buy".to_string(),
@@ -58,6 +59,7 @@ async fn test_orderbook_exhaustion() {
     // TEST_USER_ID (1번)이 시장가로 매우 큰 금액 매수
     // 오더북의 모든 매도 주문을 소진
     let buy_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 60002,
         user_id: TEST_USER_ID,
         order_type: "buy".to_string(),
@@ -107,6 +109,7 @@ async fn test_mixed_order_sequence() {
     let orders = vec![
         // 매수 주문 1
         OrderEntry {
+            fee_rate: rust_decimal::Decimal::ZERO,
             id: 60003,
             user_id: TEST_USER_ID,
             order_type: "buy".to_string(),
@@ -123,6 +126,7 @@ async fn test_mixed_order_sequence() {
         },
         // 매도 주문 1
         OrderEntry {
+            fee_rate: rust_decimal::Decimal::ZERO,
             id: 60004,
             user_id: TEST_USER_ID,
             order_type: "sell".to_string(),

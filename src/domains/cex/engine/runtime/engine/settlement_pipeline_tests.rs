@@ -4,6 +4,7 @@ use super::*;
 fn order(id: u64, user: u64, order_type: &str, market: bool) -> OrderEntry {
     let market_buy = market && order_type == "buy";
     OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id,
         user_id: user,
         order_type: order_type.into(),
@@ -546,5 +547,63 @@ fn submission_candidate_planning_never_mutates_original_orderbook() -> Result<()
         assert_eq!(incoming.remaining_amount, Decimal::from(2));
     }
     assert_eq!(book_snapshot(&engine), before);
+    Ok(())
+}
+
+/// 수수료가 수취액에서 빠지고 다음 주문에서도 과거 차감이 유지되는지 실제 후보 정산으로 검증한다.
+#[test]
+fn settlement_fees_follow_each_order_and_preserve_prior_deductions() -> Result<()> {
+    let mut engine = HighPerformanceEngine::new_bench();
+    engine.bench_set_balance(101, "USDT", Decimal::from(1000), Decimal::ZERO);
+    engine.bench_set_balance(102, "SOL", Decimal::from(10), Decimal::ZERO);
+    let mut maker = order(2, 102, "sell", false);
+    maker.fee_rate = "0.002".parse()?;
+    engine.bench_submit_direct(maker)?;
+    for id in [10, 11] {
+        let mut buy = order(id, 101, "buy", false);
+        buy.amount = Decimal::ONE;
+        buy.remaining_amount = Decimal::ONE;
+        buy.fee_rate = "0.001".parse()?;
+        let trades = engine.bench_submit_direct(buy)?;
+        assert_eq!(trades[0].buyer_fee_rate, "0.001".parse()?);
+        assert_eq!(trades[0].seller_fee_rate, "0.002".parse()?);
+    }
+    let cache = engine.state.as_ref().unwrap().executor.balance_cache();
+    assert_eq!(cache.get_balance(101, "SOL").unwrap().available, "1.998".parse()?);
+    assert_eq!(cache.get_balance(102, "USDT").unwrap().available, "199.6".parse()?);
+    assert_eq!(cache.get_balance(101, "USDT").unwrap().available, Decimal::from(800));
+    // 고객 수취분과 자체 저널의 수수료를 자산별로 더하면 원래 이동량이 된다.
+    assert_eq!(super::super::super::amount::add("1.998".parse()?, "0.002".parse()?)?, Decimal::from(2));
+    Ok(())
+}
+
+#[test]
+fn settlement_fee_rounding_and_invalid_rates_are_explicit() -> Result<()> {
+    use crate::domains::cex::engine::amount::fee;
+    assert_eq!(fee("0.000000001".parse()?, "0.001".parse()?)?, Decimal::ZERO);
+    assert_eq!(fee("1.234567891".parse()?, "0.001".parse()?)?, "0.001234567".parse()?);
+    for invalid in ["-0.001", "1", "0.0000001"] {
+        assert!(fee(Decimal::ONE, invalid.parse()?).is_err());
+    }
+    assert_eq!(fee(Decimal::ONE, Decimal::ZERO)?, Decimal::ZERO);
+    Ok(())
+}
+
+#[test]
+fn settlement_invalid_fee_keeps_book_and_accounts_unchanged() -> Result<()> {
+    let mut engine = HighPerformanceEngine::new_bench();
+    engine.bench_set_balance(101, "USDT", Decimal::from(200), Decimal::ZERO);
+    engine.bench_set_balance(102, "SOL", Decimal::from(2), Decimal::ZERO);
+    engine.bench_submit_direct(order(2, 102, "sell", false))?;
+    let mut buy = order(1, 101, "buy", false);
+    buy.fee_rate = Decimal::ONE;
+    assert!(engine.bench_submit_direct(buy.clone()).is_err());
+    let state = engine.state.as_ref().unwrap();
+    assert_eq!(state.executor.balance_cache().get_balance(101, "USDT").unwrap().available, Decimal::from(200));
+    assert_eq!(state.orderbooks.values().next().unwrap().sell_orders.total_orders(), 1);
+    // 별도 수수료 잔액 없이 정확한 매수 대금만 가진 사용자도 거래할 수 있다.
+    buy.fee_rate = "0.001".parse()?;
+    engine.bench_submit_direct(buy)?;
+    assert_eq!(engine.state.as_ref().unwrap().executor.balance_cache().get_balance(101, "USDT").unwrap().available, Decimal::ZERO);
     Ok(())
 }

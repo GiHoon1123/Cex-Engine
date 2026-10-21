@@ -198,6 +198,7 @@ fn build_limit_order(
     is_buy: bool,
 ) -> OrderEntry {
     OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: order_id,
         user_id,
         order_type: if is_buy { "buy" } else { "sell" }.to_string(),
@@ -216,6 +217,7 @@ fn build_limit_order(
 
 fn build_market_buy_order(order_id: u64, user_id: u64, quote_amount: Decimal) -> OrderEntry {
     OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: order_id,
         user_id,
         order_type: "buy".to_string(),

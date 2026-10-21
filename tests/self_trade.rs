@@ -18,6 +18,7 @@ async fn test_self_trade_prevention_limit_orders() {
     
     // TEST_USER_ID (1번)이 105 USDT로 1 SOL 매도 주문
     let sell_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 40001,
         user_id: TEST_USER_ID,
         order_type: "sell".to_string(),
@@ -39,6 +40,7 @@ async fn test_self_trade_prevention_limit_orders() {
     
     // 같은 유저가 105 USDT로 1 SOL 매수 주문
     let buy_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 40002,
         user_id: TEST_USER_ID,
         order_type: "buy".to_string(),
@@ -84,6 +86,7 @@ async fn test_market_order_skips_own_limit_order() {
     
     // TEST_USER_ID (1번)이 105 USDT로 1 SOL 매도 주문 (지정가)
     let sell_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 40003,
         user_id: TEST_USER_ID,
         order_type: "sell".to_string(),
@@ -105,6 +108,7 @@ async fn test_market_order_skips_own_limit_order() {
     
     // 같은 유저가 시장가로 1 SOL 매수
     let buy_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 40004,
         user_id: TEST_USER_ID,
         order_type: "buy".to_string(),
@@ -140,6 +144,7 @@ async fn test_market_order_fails_when_only_own_orders() {
     
     // TEST_USER_ID (1번)이 105 USDT로 1 SOL 매도 주문
     let sell_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 40005,
         user_id: TEST_USER_ID,
         order_type: "sell".to_string(),
@@ -161,6 +166,7 @@ async fn test_market_order_fails_when_only_own_orders() {
     
     // 같은 유저가 시장가로 매수 시도
     let buy_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 40006,
         user_id: TEST_USER_ID,
         order_type: "buy".to_string(),

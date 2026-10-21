@@ -35,6 +35,7 @@ impl Drop for Directory {
 }
 fn order(id: u64, user: u64, buy: bool, size: u64) -> OrderEntry {
     OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id,
         user_id: user,
         order_type: if buy { "buy" } else { "sell" }.into(),
@@ -729,5 +730,80 @@ fn journal_market_failure_keeps_cursor_and_replays_identical_snapshot() -> Resul
     assert_eq!(snapshots.len(), 2);
     assert_eq!(snapshots[0], snapshots[1]);
     assert_eq!(store.delivered()?, 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn journal_fee_results_replay_and_duplicate_without_second_charge() -> Result<()> {
+    let directory = Directory::new();
+    let store = initialize(&directory.0);
+    let mut engine = HighPerformanceEngine::new_bench();
+    attach(&mut engine, store, |_, _| Ok(()));
+    let mut sell = order(1, 2, false, 2);
+    sell.fee_rate = "0.002".parse()?;
+    let mut buy = order(2, 1, true, 1);
+    buy.fee_rate = "0.001".parse()?;
+    engine.handle().submit_order(sell).await?;
+    engine.handle().submit_order(buy.clone()).await?;
+    let expected = engine.handle().get_balance(1, "SOL").await?;
+    assert_eq!(expected.0, "0.999".parse()?);
+    engine.stop().await?;
+    let store = Store::open(&directory.0)?;
+    let mut restarted = HighPerformanceEngine::new_bench();
+    attach(&mut restarted, store, |_, _| Ok(()));
+    restarted.handle().submit_order(buy).await?;
+    assert_eq!(restarted.handle().get_balance(1, "SOL").await?, expected);
+    assert_eq!(
+        restarted.handle().get_balance(2, "USDT").await?.0,
+        "99.8".parse()?
+    );
+    restarted.stop().await?;
+    Ok(())
+}
+
+#[test]
+fn journal_old_fee_contract_is_rejected_without_rewriting_history() -> Result<()> {
+    let directory = Directory::new();
+    let store = initialize(&directory.0);
+    store.connection.execute_batch("PRAGMA user_version=1")?;
+    drop(store);
+    assert!(Store::open(&directory.0).is_err());
+    let connection = rusqlite::Connection::open(directory.0.join("journal.sqlite3"))?;
+    assert_eq!(
+        connection.query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))?,
+        1
+    );
+    Ok(())
+}
+
+#[test]
+fn journal_fee_amount_mismatch_blocks_recovery_even_with_valid_checksum() -> Result<()> {
+    let directory = Directory::new();
+    let mut store = initialize(&directory.0);
+    let mut state = seeded();
+    let mut sequence = 0;
+    let mut buy = order(2, 1, true, 1);
+    buy.fee_rate = "0.001".parse()?;
+    for command in [Command::Submit(order(1, 2, false, 1)), Command::Submit(buy)] {
+        let item = pending(&mut state, command);
+        store.append(&[item], &mut sequence)?;
+    }
+    let mut record = serde_json::to_value(store.read(2)?)?;
+    let fee = &mut record["outcome"]["Applied"]["Submitted"]["trades"][0]["buyer_fee"];
+    assert_eq!(fee.as_str(), Some("0.001"));
+    *fee = serde_json::json!("0.002");
+    let payload = serde_json::to_string(&record)?;
+    let checksum = solana_sdk::hash::hash(payload.as_bytes())
+        .to_bytes()
+        .to_vec();
+    // 검사 합까지 정상인 잘못된 결과를 주입해, 저장 손상 검사와 계산 결과 검사가 독립인지 확인한다.
+    store
+        .connection
+        .execute_batch("DROP TRIGGER records_no_update")?;
+    store.connection.execute(
+        "UPDATE records SET payload=?1,checksum=?2 WHERE sequence=2",
+        rusqlite::params![payload, checksum],
+    )?;
+    assert!(store.recover().is_err());
     Ok(())
 }

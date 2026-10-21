@@ -51,6 +51,7 @@ impl OrderService {
             request.amount.unwrap()
         };
         let entry = OrderEntry {
+            fee_rate: accepted.fee_rate,
             id: request.order_id.unwrap(),
             user_id,
             order_type: request.order_type,
@@ -222,6 +223,7 @@ mod cancellation_boundary_tests {
         let handle = engine.handle();
         handle
             .submit_order(OrderEntry {
+                fee_rate: rust_decimal::Decimal::ZERO,
                 id: 1,
                 user_id: 1,
                 order_type: "sell".into(),

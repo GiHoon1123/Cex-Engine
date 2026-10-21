@@ -145,7 +145,7 @@ fn execute(state: &mut EngineState, command: &Command) -> Result<Option<OutputBa
                 &state.matcher,
                 &mut state.executor,
             ) {
-                Ok(applied) => OutputBatch::submitted(applied, &state.executor),
+                Ok(applied) => OutputBatch::submitted(applied),
                 Err(error) => OutputBatch::Rejected {
                     order_id: order.id,
                     reason: error.to_string(),

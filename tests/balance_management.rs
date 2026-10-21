@@ -192,6 +192,7 @@ async fn test_balance_update_priority() {
     use chrono::Utc;
     
     let order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 999999,
         user_id: TEST_USER_ID,
         order_type: "buy".to_string(),

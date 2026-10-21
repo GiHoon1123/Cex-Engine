@@ -18,6 +18,7 @@ async fn test_cancel_unfilled_order() {
     
     // TEST_USER_ID (1번)이 95 USDT로 1 SOL 매수 주문 (미체결)
     let buy_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 30001,
         user_id: TEST_USER_ID,
         order_type: "buy".to_string(),
@@ -66,6 +67,7 @@ async fn test_cancel_partially_filled_order() {
     // 101~110 USDT 가격의 매도 주문과 매칭되지 않으므로 미체결 상태로 남음
     // (지정가 매수 가격이 매도 호가보다 낮으면 매칭 안 됨)
     let buy_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 30002,
         user_id: TEST_USER_ID,
         order_type: "buy".to_string(),
@@ -130,6 +132,7 @@ async fn test_cancel_twice_fails() {
     
     // TEST_USER_ID (1번)이 95 USDT로 1 SOL 매수 주문 (미체결)
     let buy_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 30003,
         user_id: TEST_USER_ID,
         order_type: "buy".to_string(),
@@ -173,6 +176,7 @@ async fn test_orderbook_consistency_after_cancel() {
     
     // TEST_USER_ID (1번)이 95 USDT로 1 SOL 매수 주문
     let buy_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 30004,
         user_id: TEST_USER_ID,
         order_type: "buy".to_string(),

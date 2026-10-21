@@ -64,7 +64,7 @@ def until(probe, seconds=20):
 def submit(oid, user, side, amount):
     sql(f"INSERT INTO orders(id,user_id,order_type,order_side,base_mint,quote_mint,price,amount) "
         f"VALUES({oid},{user},'{side}','limit','BTC','USDT',100,{amount}); "
-        f"INSERT INTO order_submissions VALUES({oid},{user},'{side}','limit','BTC','USDT',100,{amount},NULL)")
+        f"INSERT INTO order_submissions VALUES({oid},{user},'{side}','limit','BTC','USDT',100,{amount},NULL,0)")
     status, receipt = http("/api/cex/orders", {"order_id": oid, "user_id": user,
         "order_type": side, "order_side": "limit", "base_mint": "BTC", "quote_mint": "USDT",
         "price": "100", "amount": str(amount)})
@@ -85,7 +85,7 @@ try:
         "price NUMERIC,amount NUMERIC,filled_amount NUMERIC DEFAULT 0,filled_quote_amount NUMERIC DEFAULT 0,status TEXT DEFAULT 'pending',"
         "created_at TIMESTAMPTZ DEFAULT now(),updated_at TIMESTAMPTZ DEFAULT now()); "
         "CREATE TABLE order_submissions(order_id BIGINT UNIQUE,user_id BIGINT,order_type TEXT,order_side TEXT,base_mint TEXT,quote_mint TEXT,"
-        "price NUMERIC(30,9),amount NUMERIC(30,9),quote_amount NUMERIC(30,9)); " + (ROOT / "schema/order_receipts.sql").read_text())
+        "price NUMERIC(30,9),amount NUMERIC(30,9),quote_amount NUMERIC(30,9),fee_rate NUMERIC(10,6) NOT NULL); " + (ROOT / "schema/order_receipts.sql").read_text())
     kafka_port, engine_port = free_port(), free_port()
     envs = {"KAFKA_NODE_ID": "1", "KAFKA_PROCESS_ROLES": "broker,controller",
         "KAFKA_LISTENERS": "EXTERNAL://:9092,INTERNAL://:29092,CONTROLLER://:9093",
@@ -150,8 +150,8 @@ try:
     assert [event["event_type"] for event in events] == ["trade_executed", "order_cancelled"], events
     trade = events[0]
     assert (trade["buy_order_id"], trade["sell_order_id"]) == (2, 1)
-    assert Decimal(str(trade["amount"])) == 1 and Decimal(str(trade["buyer_quote_available"])) == 900
-    assert Decimal(str(trade["seller_base_locked"])) == 2
+    assert Decimal(str(trade["amount"])) == 1 and Decimal(str(trade["buyer_fee"])) == 0 and Decimal(str(trade["seller_fee"])) == 0
+    assert "seller_base_locked" not in trade, "폐기한 잔고 스냅샷을 발행했습니다"
     evidence["checks"].append({"case": "ordered_trade_and_cancel", "events": len(events)})
     assert sql("SELECT count(*) FROM orders WHERE status='pending' AND filled_amount=0") == "2"
     evidence["checks"].append({"case": "engine_does_not_update_platform_orders", "unchanged_orders": 2})
@@ -187,8 +187,9 @@ try:
     assert recovered_events[0]["event_id"] == events[0]["event_id"]
     assert len({event["event_id"] for event in recovered_events}) == 3
     assert recovered_events[-1]["buy_order_id"] == 4
-    assert Decimal(str(recovered_events[-1]["buyer_quote_available"])) == 800
-    evidence["checks"].append({"case":"durable_unpublished_trade_recovered_after_broker_failure","events":3,"buyer_quote_available":800})
+    assert Decimal(str(recovered_events[-1]["amount"])) == 1
+    assert Decimal(str(recovered_events[-1]["buyer_fee"])) == 0
+    evidence["checks"].append({"case":"durable_unpublished_trade_recovered_after_broker_failure","events":3,"recovered_trade_amount":1})
     # 정상 종료도 큐와 저널을 닫아 성공으로 끝나는지 확인한다.
     engine.terminate()
     engine.wait(timeout=15)

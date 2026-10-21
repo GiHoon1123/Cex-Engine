@@ -86,3 +86,14 @@ pub(crate) fn quantity_for_budget(
     let step = FACTOR / b;
     decimal(maximum / step * step)
 }
+
+/// 수수료만 고정 9자리 미만을 버린다. 고객에게 실제 수취액보다 많이 청구하지 않으며,
+/// 곱셈은 큰 정수로 수행해 Decimal 중간 반올림과 오버플로를 피한다.
+pub(crate) fn fee(received: Decimal, rate: Decimal) -> Result<Decimal> {
+    ensure!(
+        rate < Decimal::ONE && rate.normalize().scale() <= 6,
+        "Invalid fee rate"
+    );
+    let value = BigInt::from(units(received)?) * BigInt::from(units(rate)?) / FACTOR;
+    decimal(i128::try_from(value)?)
+}

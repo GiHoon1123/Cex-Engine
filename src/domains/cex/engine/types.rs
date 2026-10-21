@@ -102,6 +102,8 @@ impl TradingPair {
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OrderEntry {
+    /// 접수 시 고정한 수취 자산 수수료율이다. 재생 중 현행 설정을 조회하지 않는다.
+    pub fee_rate: Decimal,
     /// 주문 고유 ID
     /// Unique order ID (same as DB)
     pub id: u64,
@@ -233,6 +235,9 @@ impl OrderEntry {
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MatchResult {
+    /// 매수·매도 원본 주문의 적용률이다. 먼저 들어온 주문과 신규 주문이 달라도 각 원본을 따른다.
+    pub buyer_fee_rate: Decimal,
+    pub seller_fee_rate: Decimal,
     /// 매수 주문 ID
     /// Buy order ID
     pub buy_order_id: u64,

@@ -118,6 +118,8 @@ try:
     else:
         raise RuntimeError("임시 PostgreSQL 시작 시간 초과")
     database_address = subprocess.check_output([DOCKER, "port", container, "5432/tcp"], text=True).strip()
+    # 격리 정책을 플랫폼 시작 전에 만든다. 제품의 임의 기본률에 의존하지 않는다.
+    sql("CREATE TABLE fee_configs(id BIGSERIAL PRIMARY KEY, base_mint VARCHAR(255), quote_mint VARCHAR(255), fee_rate NUMERIC(10,6) NOT NULL, fee_type VARCHAR(20) NOT NULL, is_active BOOLEAN NOT NULL, created_at TIMESTAMP NOT NULL, updated_at TIMESTAMP NOT NULL); INSERT INTO fee_configs(fee_rate,fee_type,is_active,created_at,updated_at) VALUES(0.001,'both',true,now(),now());")
     engine_port = port()
     forwarded = []
     forwarded_event = threading.Event()

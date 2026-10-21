@@ -129,6 +129,8 @@ impl Matcher {
                     (&plan.order, &maker)
                 };
                 plan.matches.push(MatchResult {
+                    buyer_fee_rate: buy.fee_rate,
+                    seller_fee_rate: sell.fee_rate,
                     buy_order_id: buy.id,
                     sell_order_id: sell.id,
                     buyer_id: buy.user_id,
@@ -155,6 +157,7 @@ impl Matcher {
 /// HTTP 경계와 별도로 내부 후보의 불변조건을 검사한다. 손상된 maker를 건너뛰어
 /// 더 불리한 가격으로 거래하거나, 잘못된 신규 명령으로 예약을 변경하지 않는다.
 fn validate(order: &OrderEntry, incoming: bool) -> Result<()> {
+    super::amount::fee(Decimal::ZERO, order.fee_rate)?;
     ensure!(
         order.id > 0
             && order.id <= i64::MAX as u64

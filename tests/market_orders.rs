@@ -23,6 +23,7 @@ async fn test_market_buy_full_fill() {
     // 101 USDT * 1 SOL = 101 USDT이므로, 최소 101 USDT는 필요
     // 200 USDT어치 구매하면 1 SOL 이상 살 수 있음
     let buy_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 20001,
         user_id: TEST_USER_ID,
         order_type: "buy".to_string(),
@@ -58,6 +59,7 @@ async fn test_market_buy_partial_fill() {
     // TEST_USER_ID (1번)이 시장가로 매우 큰 금액 매수 시도
     // 오더북에는 각 가격 레벨에 1 SOL씩만 있음
     let buy_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 20002,
         user_id: TEST_USER_ID,
         order_type: "buy".to_string(),
@@ -93,6 +95,7 @@ async fn test_market_buy_no_liquidity() {
     
     // TEST_USER_ID (1번)이 시장가로 매수 시도
     let buy_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 20003,
         user_id: TEST_USER_ID,
         order_type: "buy".to_string(),
@@ -123,6 +126,7 @@ async fn test_market_sell_full_fill() {
     
     // TEST_USER_ID (1번)이 시장가로 1 SOL 매도
     let sell_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 20004,
         user_id: TEST_USER_ID,
         order_type: "sell".to_string(),
@@ -155,6 +159,7 @@ async fn test_market_sell_partial_fill() {
     // TEST_USER_ID (1번)이 시장가로 매우 큰 수량 매도 시도
     // 오더북에는 각 가격 레벨에 1 SOL씩만 있음
     let sell_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 20005,
         user_id: TEST_USER_ID,
         order_type: "sell".to_string(),
@@ -189,6 +194,7 @@ async fn test_market_sell_no_liquidity() {
     
     // TEST_USER_ID (1번)이 시장가로 매도 시도
     let sell_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 20006,
         user_id: TEST_USER_ID,
         order_type: "sell".to_string(),

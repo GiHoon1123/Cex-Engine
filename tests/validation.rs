@@ -22,6 +22,7 @@ async fn test_insufficient_balance_rejects_order() {
     
     // 잔고보다 훨씬 큰 금액으로 매수 주문 시도
     let buy_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 70001,
         user_id: TEST_USER_ID,
         order_type: "buy".to_string(),
@@ -59,6 +60,7 @@ async fn test_invalid_price_rejects_order() {
     
     // 가격 0인 주문
     let buy_order_zero = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 70002,
         user_id: TEST_USER_ID,
         order_type: "buy".to_string(),
@@ -90,6 +92,7 @@ async fn test_invalid_amount_rejects_order() {
     
     // 수량 0인 주문
     let sell_order_zero = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 70003,
         user_id: TEST_USER_ID,
         order_type: "sell".to_string(),
@@ -121,6 +124,7 @@ async fn test_market_order_zero_amount_fails() {
     
     // 시장가 매도 주문 (수량 0)
     let sell_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 70004,
         user_id: TEST_USER_ID,
         order_type: "sell".to_string(),

@@ -7,6 +7,7 @@ fn platform_reservation_is_not_written_to_database_twice() -> Result<()> {
     engine.bench_set_balance(101, "USDT", Decimal::from(1000), Decimal::ZERO);
 
     let order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 1,
         user_id: 101,
         order_type: "buy".into(),

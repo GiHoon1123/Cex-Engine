@@ -18,6 +18,7 @@ async fn test_market_order_cancellation_rejected() {
     
     // TEST_USER_ID (1번)이 시장가로 매수
     let buy_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 80001,
         user_id: TEST_USER_ID,
         order_type: "buy".to_string(),
@@ -54,6 +55,7 @@ async fn test_cancel_during_partial_fill() {
     // TEST_USER_ID (1번)이 95 USDT로 1 SOL 매수 주문 (미체결)
     // 오더북의 최소 매도 가격은 101 USDT이므로, 95 USDT로는 매칭되지 않음
     let buy_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 80002,
         user_id: TEST_USER_ID,
         order_type: "buy".to_string(),
@@ -108,6 +110,7 @@ async fn test_deadlock_prevention() {
     // 여러 주문을 동시에 제출 (실제로는 순차적으로 처리되지만, 테스트 목적)
     let orders = vec![
         OrderEntry {
+            fee_rate: rust_decimal::Decimal::ZERO,
             id: 80003,
             user_id: TEST_USER_ID,
             order_type: "buy".to_string(),
@@ -123,6 +126,7 @@ async fn test_deadlock_prevention() {
             created_at: Utc::now(),
         },
         OrderEntry {
+            fee_rate: rust_decimal::Decimal::ZERO,
             id: 80004,
             user_id: TEST_USER_ID,
             order_type: "buy".to_string(),

@@ -8,7 +8,7 @@
 // 2. OrderCancelledEvent - 취소 이벤트
 //
 // 중요: 단일 토픽으로 통합하여 순서 보장
-// - 토픽: order-events (파티션 12개)
+// - 토픽: order-events (파티션 1개)
 // - 파티션 키: 엔진 식별자 (한 코어의 결과는 같은 파티션으로)
 // - 정산용: trade_executed, order_cancelled만 발행
 // =====================================================
@@ -61,25 +61,12 @@ pub struct TradeExecutedEvent {
     /// 체결 시간
     pub timestamp: DateTime<Utc>,
 
-    // ============================================
-    // 체결 후 잔고 스냅샷 (수수료 적용 전)
-    // 엔진 스레드에서 체결 직후 조회하여 전송
-    // ============================================
-    /// 매수자 base_mint 잔고 (체결 후)
-    pub buyer_base_available: Decimal,
-    pub buyer_base_locked: Decimal,
+    /// 매수자는 기준 자산, 매도자는 결제 자산에서 납부한다. 적용률과 실제 차감액을 함께 기록한다.
+    pub buyer_fee_rate: Decimal,
+    pub seller_fee_rate: Decimal,
+    pub buyer_fee: Decimal,
+    pub seller_fee: Decimal,
 
-    /// 매수자 quote_mint 잔고 (체결 후)
-    pub buyer_quote_available: Decimal,
-    pub buyer_quote_locked: Decimal,
-
-    /// 매도자 base_mint 잔고 (체결 후)
-    pub seller_base_available: Decimal,
-    pub seller_base_locked: Decimal,
-
-    /// 매도자 quote_mint 잔고 (체결 후)
-    pub seller_quote_available: Decimal,
-    pub seller_quote_locked: Decimal,
 }
 
 /// 주문 취소 이벤트

@@ -1,15 +1,11 @@
 //! 확정 결과를 순서대로 전달하는 출력 워커다. 거래 상태를 읽거나 수정하지 않는다.
 use super::submission::AppliedSubmission;
 use crate::{
-    domains::cex::engine::{
-        executor::Executor,
-        types::{MatchResult, OrderEntry},
-    },
+    domains::cex::engine::types::{MatchResult, OrderEntry},
     shared::kafka::{KafkaProducer, OrderCancelledEvent, TradeExecutedEvent},
 };
 use anyhow::Result;
 use chrono::Utc;
-use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -33,34 +29,35 @@ pub(super) enum OutputBatch {
 #[derive(Debug, Serialize, Deserialize)]
 pub(super) struct TradeOutput {
     pub(super) trade: MatchResult,
-    balances: [Decimal; 8],
+    /// 실제 차감액도 결과에 보존한다. 복구 시 계산 정책이 달라지면 결과 비교가 실패해야 한다.
+    buyer_fee: rust_decimal::Decimal,
+    seller_fee: rust_decimal::Decimal,
 }
 
 impl OutputBatch {
-    pub(super) fn submitted(applied: AppliedSubmission, executor: &Executor) -> Self {
+    pub(super) fn submitted(applied: AppliedSubmission) -> Self {
         let order_id = applied.order_id;
-        let cache = executor.balance_cache();
+        // 코어에서 확정한 체결을 전달한다. 개별 이벤트에 전체 주문의 마지막 잔고를
+        // 반복하면 플랫폼의 후속 주문 예약을 덮어쓰므로 잔고 스냅샷을 보내지 않는다.
         let trades = applied
             .matches
             .into_iter()
             .map(|trade| {
-                // 전체 주문 확정 후의 스냅샷이라는 기존 계약을 유지한다.
-                // 플랫폼 원장과 수수료의 권위·버전 문제는 별도로 해결해야 한다.
-                let keys = [
-                    (trade.buyer_id, &trade.base_mint),
-                    (trade.buyer_id, &trade.quote_mint),
-                    (trade.seller_id, &trade.base_mint),
-                    (trade.seller_id, &trade.quote_mint),
-                ];
-                let mut balances = [Decimal::ZERO; 8];
-                for (index, (user, asset)) in keys.into_iter().enumerate() {
-                    let balance = cache
-                        .get_balance(user, asset)
-                        .expect("settled account exists");
-                    balances[index * 2] = balance.available;
-                    balances[index * 2 + 1] = balance.locked;
+                // 후보 정산에서 이미 성공한 계산만 사용한다. 이 아래의 재생 결과 비교에는
+                // 적용률뿐 아니라 실제 차감액도 포함되어야 한다.
+                let buyer_fee =
+                    crate::domains::cex::engine::amount::fee(trade.amount, trade.buyer_fee_rate)
+                        .expect("validated fee");
+                let value = crate::domains::cex::engine::amount::quote(trade.price, trade.amount)
+                    .expect("validated value");
+                let seller_fee =
+                    crate::domains::cex::engine::amount::fee(value, trade.seller_fee_rate)
+                        .expect("validated fee");
+                TradeOutput {
+                    trade,
+                    buyer_fee,
+                    seller_fee,
                 }
-                TradeOutput { trade, balances }
             })
             .collect();
         Self::Submitted { order_id, trades }
@@ -91,7 +88,6 @@ pub(super) fn deliver(
             OutputBatch::Submitted { trades, .. } => {
                 for (index, output) in trades.iter().enumerate() {
                     let t = &output.trade;
-                    let b = output.balances;
                     let event = TradeExecutedEvent {
                         event_id: format!("{}:{}:{}", position.engine_id, position.sequence, index),
                         engine_id: position.engine_id.into(),
@@ -105,14 +101,10 @@ pub(super) fn deliver(
                         base_mint: t.base_mint.clone(),
                         quote_mint: t.quote_mint.clone(),
                         timestamp: position.timestamp,
-                        buyer_base_available: b[0],
-                        buyer_base_locked: b[1],
-                        buyer_quote_available: b[2],
-                        buyer_quote_locked: b[3],
-                        seller_base_available: b[4],
-                        seller_base_locked: b[5],
-                        seller_quote_available: b[6],
-                        seller_quote_locked: b[7],
+                        buyer_fee_rate: t.buyer_fee_rate,
+                        seller_fee_rate: t.seller_fee_rate,
+                        buyer_fee: output.buyer_fee,
+                        seller_fee: output.seller_fee,
                     };
                     producer
                         .publish_trade_executed(&event)

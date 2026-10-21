@@ -5,6 +5,7 @@ use crate::domains::cex::engine::{runtime::bench_engine::BenchEngine, Engine};
 
 fn order(id: u64, user_id: u64, buy: bool, amount: i64) -> OrderEntry {
     OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id,
         user_id,
         order_type: if buy { "buy" } else { "sell" }.into(),

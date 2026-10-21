@@ -18,6 +18,7 @@ async fn test_limit_buy_full_fill() {
     
     // TEST_USER_ID (1번)이 105 USDT로 1 SOL 매수 주문
     let buy_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 10001,
         user_id: TEST_USER_ID,
         order_type: "buy".to_string(),
@@ -53,6 +54,7 @@ async fn test_limit_buy_partial_fill() {
     // TEST_USER_ID (1번)이 105 USDT로 5 SOL 매수 주문
     // 오더북에는 각 가격 레벨에 1 SOL씩만 있음 (101~110)
     let buy_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 10002,
         user_id: TEST_USER_ID,
         order_type: "buy".to_string(),
@@ -88,6 +90,7 @@ async fn test_limit_buy_no_fill() {
     // TEST_USER_ID (1번)이 95 USDT로 1 SOL 매수 주문
     // 오더북의 매도 호가는 101~110이므로 매칭되지 않음
     let buy_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 10003,
         user_id: TEST_USER_ID,
         order_type: "buy".to_string(),
@@ -123,6 +126,7 @@ async fn test_limit_sell_full_fill() {
     // TEST_USER_ID (1번)이 95 USDT로 1 SOL 매도 주문
     // 오더북의 매수 호가는 90~100이므로 매칭됨
     let sell_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 10004,
         user_id: TEST_USER_ID,
         order_type: "sell".to_string(),
@@ -155,6 +159,7 @@ async fn test_limit_sell_partial_fill() {
     // TEST_USER_ID (1번)이 95 USDT로 5 SOL 매도 주문
     // 오더북에는 각 가격 레벨에 1 SOL씩만 있음 (90~100)
     let sell_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 10005,
         user_id: TEST_USER_ID,
         order_type: "sell".to_string(),
@@ -187,6 +192,7 @@ async fn test_limit_sell_no_fill() {
     // TEST_USER_ID (1번)이 115 USDT로 1 SOL 매도 주문
     // 오더북의 매수 호가는 90~100이므로 매칭되지 않음
     let sell_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 10006,
         user_id: TEST_USER_ID,
         order_type: "sell".to_string(),

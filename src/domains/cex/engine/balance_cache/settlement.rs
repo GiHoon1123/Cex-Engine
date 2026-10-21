@@ -39,11 +39,21 @@ impl BalanceCache {
 
         let amount = units(trade.amount)?;
         let quote = units(quote(trade.price, trade.amount)?)?;
+        // 수취 자산에서만 차감하므로 매수 대금·매도 수량의 추가 예약이 필요 없다.
+        // 수수료는 체결 결과와 자체 저널에 남고 플랫폼의 자산별 수익 기록으로 이어진다.
+        let buyer_fee = units(super::super::amount::fee(
+            trade.amount,
+            trade.buyer_fee_rate,
+        )?)?;
+        let seller_fee = units(super::super::amount::fee(
+            super::super::amount::quote(trade.price, trade.amount)?,
+            trade.seller_fee_rate,
+        )?)?;
         let changes = [
             (trade.buyer_id, &trade.quote_mint, 0, -quote),
-            (trade.seller_id, &trade.quote_mint, quote, 0),
+            (trade.seller_id, &trade.quote_mint, quote - seller_fee, 0),
             (trade.seller_id, &trade.base_mint, 0, -amount),
-            (trade.buyer_id, &trade.base_mint, amount, 0),
+            (trade.buyer_id, &trade.base_mint, amount - buyer_fee, 0),
         ];
         let mut staged: HashMap<(u64, String), (i128, i128)> = HashMap::with_capacity(4);
         for (user, asset, available_delta, locked_delta) in changes {

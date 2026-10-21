@@ -105,6 +105,7 @@ async fn test_orderbook_update_after_partial_fill() {
     // TEST_USER_ID (1번)이 105 USDT로 1 SOL 매수 주문
     // 오더북의 매도 호가 101~110에 각 1 SOL씩 있으므로 체결됨
     let buy_order = OrderEntry {
+        fee_rate: rust_decimal::Decimal::ZERO,
         id: 50001,
         user_id: TEST_USER_ID,
         order_type: "buy".to_string(),

@@ -12,7 +12,7 @@ async fn schema(pool: &PgPool) -> Result<()> {
     pool.execute(
         "CREATE TABLE order_submissions (order_id BIGINT UNIQUE,user_id BIGINT,
         order_type TEXT,order_side TEXT,base_mint TEXT,quote_mint TEXT,price NUMERIC(30,9),
-        amount NUMERIC(30,9),quote_amount NUMERIC(30,9))",
+        amount NUMERIC(30,9),quote_amount NUMERIC(30,9),fee_rate NUMERIC(10,6) NOT NULL)",
     )
     .await?;
     pool.execute(include_str!(concat!(
@@ -22,7 +22,7 @@ async fn schema(pool: &PgPool) -> Result<()> {
     .await?;
     pool.execute(
         "INSERT INTO orders VALUES (1,101,'pending',0);
-        INSERT INTO order_submissions VALUES (1,101,'buy','limit','SOL','USDT',100,2,NULL)",
+        INSERT INTO order_submissions VALUES (1,101,'buy','limit','SOL','USDT',100,2,NULL,0)",
     )
     .await?;
     Ok(())
@@ -446,5 +446,18 @@ async fn receipt_rejects_unrepresentable_original_without_panic(pool: PgPool) ->
         .fetch_one(&pool)
         .await?;
     assert_eq!(count, 0);
+    Ok(())
+}
+
+#[sqlx::test(migrations = false)]
+async fn receipt_fee_rate_is_frozen_and_invalid_policy_is_rejected(pool: PgPool) -> Result<()> {
+    schema(&pool).await?;
+    pool.execute("UPDATE order_submissions SET fee_rate=0.001").await?;
+    assert_eq!(accept(&pool, &request()).await?.fee_rate, "0.001".parse()?);
+    pool.execute("UPDATE order_submissions SET fee_rate=0.002").await?;
+    assert_eq!(accept(&pool, &request()).await?.fee_rate, "0.001".parse()?);
+    pool.execute("DELETE FROM engine_order_receipts; UPDATE order_submissions SET fee_rate=1").await?;
+    assert!(accept(&pool, &request()).await.is_err());
+    assert_eq!(sqlx::query_scalar::<_, i64>("SELECT count(*) FROM engine_order_receipts").fetch_one(&pool).await?, 0);
     Ok(())
 }
