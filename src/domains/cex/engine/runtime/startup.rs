@@ -25,6 +25,20 @@ pub(super) async fn load_balances(pool: &PgPool) -> Result<BalanceCache> {
         .await
         .context("Failed to configure startup inspection snapshot")?;
 
+    // 접수 기록은 체결 완료·재생 위치가 아니다. DB 주문이 우연히 종료 상태여도
+    // 현재는 이 접수를 안전하게 복원할 결과 로그가 없어 재개를 차단한다.
+    let receipt: Option<i64> =
+        sqlx::query_scalar("SELECT order_id FROM engine_order_receipts ORDER BY order_id LIMIT 1")
+            .fetch_optional(&mut *transaction)
+            .await
+            .context("Failed to inspect durable engine receipts")?;
+    if let Some(order_id) = receipt {
+        bail!(
+            "Engine startup blocked: durable receipt order_id={}; authoritative replay is required",
+            order_id
+        );
+    }
+
     // 종료 상태만 명시적으로 허용한다. pending·partial뿐 아니라 알 수 없는
     // 상태도 복구 판단 없이 빠뜨리지 않는다. NULL 역시 종료로 간주하지 않는다.
     let unresolved_order: Option<(i64, Option<String>)> = sqlx::query_as(

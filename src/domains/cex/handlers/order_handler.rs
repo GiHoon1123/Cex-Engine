@@ -1,5 +1,6 @@
 use crate::domains::cex::models::order::{Order, CreateOrderRequest};
 use crate::shared::services::AppState;
+use crate::domains::cex::services::order_receipt::{OrderAcceptance, ReceiptError};
 use axum::{
     extract::{State, Path, Query},
     http::StatusCode,
@@ -33,16 +34,19 @@ use axum::{
 /// - amount: 주문 수량
 /// 
 /// # Response
-/// - 201: 주문 생성 성공
-/// - 400: 잘못된 요청 (유효성 검증 실패)
-/// - 401: 인증 실패
-/// - 500: 서버 오류
+/// - 202: 영속 접수 완료, 실행 결과 미확정
+/// - 200: 기존 접수 확인, 실행 큐 재전송 없음
+/// - 400: 잘못된 주문 원본
+/// - 409: 주문 ID와 명령 내용 충돌
+/// - 503: 영속 접수 저장소 오류
 #[utoipa::path(
     post,
     path = "/api/cex/orders",
     request_body = CreateOrderRequest,
     responses(
-        (status = 201, description = "Order created successfully", body = Order),
+        (status = 202, description = "Durable acceptance; execution is not confirmed", body = OrderAcceptance),
+        (status = 200, description = "Existing receipt; command is not dispatched again", body = OrderAcceptance),
+        (status = 409, description = "Order id conflicts with original command"),
         (status = 400, description = "Bad request (invalid order parameters)"),
         (status = 500, description = "Internal server error")
     ),
@@ -51,30 +55,20 @@ use axum::{
 pub async fn create_order(
     State(app_state): State<AppState>,
     Json(request): Json<CreateOrderRequest>,
-) -> Result<(StatusCode, Json<Order>), (StatusCode, Json<serde_json::Value>)> {
-    eprintln!("[OrderHandler] HTTP 요청 수신: order_id={:?}, user_id={}, order_type={}, order_side={}", 
-             request.order_id, request.user_id, request.order_type, request.order_side);
-    std::io::Write::flush(&mut std::io::stderr()).ok();
-    
-    // Service 호출 (user_id는 요청 본문에서 가져옴)
-    let user_id = request.user_id;
-    let order = app_state
-        .cex_state
-        .order_service
-        .create_order(user_id, request)
-        .await
-        .map_err(|e| {
-            eprintln!("[OrderHandler] 주문 생성 실패: error={}", e);
-            (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": format!("Failed to create order: {}", e)
-                })),
-            )
+) -> Result<(StatusCode, Json<OrderAcceptance>), (StatusCode, Json<serde_json::Value>)> {
+    let accepted = app_state.cex_state.order_service.create_order(request.user_id, request).await
+        .map_err(|error| {
+            // 입력/키 충돌과 DB 장애를 구분한다. SQL·연결 문자열 등 내부 원인은 응답에 싣지 않는다.
+            let (status, code) = match error.downcast_ref::<ReceiptError>() {
+                Some(ReceiptError::Invalid) => (StatusCode::BAD_REQUEST, "INVALID_ORDER_SUBMISSION"),
+                Some(ReceiptError::Conflict) => (StatusCode::CONFLICT, "ORDER_SUBMISSION_CONFLICT"),
+                None => (StatusCode::SERVICE_UNAVAILABLE, "ORDER_ACCEPTANCE_UNAVAILABLE"),
+            };
+            eprintln!("[Order] 접수 실패: {error:#}");
+            (status, Json(serde_json::json!({"code": code})))
         })?;
-
-    eprintln!("[OrderHandler] 주문 생성 성공: order_id={}", order.id);
-    Ok((StatusCode::CREATED, Json(order)))
+    let status = if accepted.created { StatusCode::ACCEPTED } else { StatusCode::OK };
+    Ok((status, Json(accepted.receipt)))
 }
 
 /// 주문 취소 핸들러

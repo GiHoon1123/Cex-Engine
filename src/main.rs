@@ -65,6 +65,7 @@ use crate::domains::cex::models::*;
         // ExchangeBalanceResponse,
         Order,
         CreateOrderRequest,
+        crate::domains::cex::services::order_receipt::OrderAcceptance,
         // OrderResponse,
         // OrdersResponse,
         // OrderBookEntry,
@@ -201,13 +202,14 @@ async fn main() {
         .layer(cors)
         .with_state(app_state);
 
-    // 서버 시작: 3002 포트에서 리스닝
-    let listener = TcpListener::bind("0.0.0.0:3002")
+    // 기본은 내부 루프백이다. 컨테이너 배포·격리 실행 검증에서만 명시적으로 주소를 준다.
+    let http_address = std::env::var("ENGINE_HTTP_ADDRESS")
+        .unwrap_or_else(|_| "127.0.0.1:3002".into());
+    let listener = TcpListener::bind(&http_address)
         .await
         .unwrap();
     
-    eprintln!("[Main] Server running on http://localhost:3002");
-    eprintln!("[Main] Swagger UI available at http://localhost:3002/api");
+    eprintln!("[Main] Server running on http://{}", http_address);
     eprintln!("[Main] Database: PostgreSQL (cex)");
     
     // 서버 실행

@@ -129,8 +129,7 @@ pub struct Order {
 #[derive(Debug, Deserialize, ToSchema)]
 #[schema(as = CreateOrderRequest)]
 pub struct CreateOrderRequest {
-    /// Order ID (from Java API, optional - if not provided, Rust engine will generate)
-    /// 주문 ID (Java API에서 전달, 선택적 - 없으면 Rust 엔진이 생성)
+    /// 플랫폼에서 저장한 주문 ID. 누락·0·BIGINT 범위 초과는 접수하지 않는다.
     #[schema(value_type = Option<String>, example = "123456")]
     #[serde(default)]
     pub order_id: Option<u64>,

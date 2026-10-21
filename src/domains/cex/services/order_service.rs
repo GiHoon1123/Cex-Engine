@@ -5,37 +5,13 @@ use crate::domains::cex::engine::{Engine, TradingPair, OrderEntry, entry_to_orde
 use anyhow::{Context, Result, bail};
 use rust_decimal::Decimal;
 use chrono::Utc;
+use super::order_receipt::{self, AcceptanceResult};
 
-/// 주문 서비스
-/// Order Service
-/// 
-/// 역할:
-/// - 주문 생성/취소/조회 비즈니스 로직 담당
-/// - 잔고 확인 및 검증
-/// - 체결 엔진과 통신
-/// 
-/// 아키텍처:
-/// - OrderService → Engine trait → 실제 Engine 구현체
-/// - Service는 Engine의 구체적 구현을 몰라도 됨 (Dependency Inversion)
-/// - 나중에 Engine 구현체만 교체하면 자동으로 연동
-/// 
-/// 처리 흐름:
-/// 1. API Handler → OrderService
-/// 2. OrderService → 검증 (잔고, 권한 등)
-/// 3. OrderService → Repository (DB 저장)
-/// 4. OrderService → Engine (매칭 엔진 제출)
-/// 5. Engine → 매칭 & 체결 처리
-/// 
-/// # Examples
-/// ```
-/// let service = OrderService::new(db, engine);
-/// 
-/// // 주문 생성
-/// let order = service.create_order(user_id, request).await?;
-/// 
-/// // 주문 취소
-/// service.cancel_order(user_id, order_id).await?;
-/// ```
+/// 플랫폼 원본과 엔진 영속 접수·실행 큐의 경계를 연결한다.
+///
+/// 생성은 DB 접수 커밋 뒤 최초 요청만 큐로 전달한다. 여기서 반환하는 접수 증명은
+/// 체결 완료·주문장 복구 가능성을 뜻하지 않는다. 취소·조회는 기존 메서드가 담당한다.
+/// 동일한 Arc<Mutex<HighPerformanceEngine>>를 공유하며 HTTP 작업 밖의 별도 spawn은 없다.
 #[derive(Clone)]
 pub struct OrderService {
     /// 데이터베이스 연결
@@ -51,190 +27,42 @@ pub struct OrderService {
 }
 
 impl OrderService {
-    /// 생성자
-    /// Constructor
-    /// 
-    /// # Arguments
-    /// * `db` - 데이터베이스 연결
-    /// * `engine` - 체결 엔진 (trait 객체)
-    /// 
-    /// # Returns
-    /// OrderService 인스턴스
-    /// 
-    /// # Examples
-    /// ```
-    /// let engine = Arc::new(SimpleEngine::new(...));
-    /// let service = OrderService::new(db, engine);
-    /// ```
+    /// 공유 DB 풀과 실행 엔진을 빌려 쓴다. 서비스 복제 자체는 접수 기록을 복제하지 않는다.
     pub fn new(db: Database, engine: Arc<tokio::sync::Mutex<HighPerformanceEngine>>) -> Self {
         Self { db, engine }
     }
 
-    /// 주문 생성
-    /// Create order
-    /// 
-    /// 새로운 주문을 생성하고 체결 엔진에 제출합니다.
-    /// 
-    /// # Arguments
-    /// * `user_id` - 주문을 생성하는 사용자 ID
-    /// * `request` - 주문 생성 요청 (가격, 수량, 타입 등)
-    /// 
-    /// # Returns
-    /// * `Ok(Order)` - 생성된 주문 정보
-    /// * `Err` - 주문 생성 실패 (잔고 부족, 유효하지 않은 주문 등)
-    /// 
-    /// # 처리 과정
-    /// 1. 주문 유효성 검증 (가격, 수량, 타입)
-    /// 2. 잔고 확인 (필요한 금액이 있는지)
-    /// 3. DB에 주문 저장
-    /// 4. 엔진에 잔고 잠금 요청
-    /// 5. 엔진에 주문 제출 (매칭 시도)
-    /// 6. 생성된 주문 반환
-    /// 
-    /// # Errors
-    /// - 잔고 부족 시
-    /// - 유효하지 않은 주문 파라미터
-    /// - 데이터베이스 오류
-    /// - 엔진 오류
-    /// 
-    /// # Examples
-    /// ```
-    /// let request = CreateOrderRequest {
-    ///     order_type: "buy".to_string(),
-    ///     order_side: "limit".to_string(),
-    ///     base_mint: "SOL".to_string(),
-    ///     quote_mint: "USDT".to_string(),
-    ///     price: Some(Decimal::new(100, 0)),
-    ///     amount: Decimal::new(1, 0),
-    /// };
-    /// 
-    /// let order = service.create_order(user_id, request).await?;
-    /// println!("주문 생성: ID {}", order.id);
-    /// ```
+    /// 플랫폼 원본과 같은 명령을 먼저 영속 접수하고, 최초 접수만 실행 큐로 보낸다.
+    /// 반환은 체결 완료가 아니다. 커밋 후 큐 전달 전 종료 가능성을 감추지 않는다.
     pub async fn create_order(
-        &self,
-        user_id: u64,
-        request: CreateOrderRequest,
-    ) -> Result<Order> {
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // 1. 주문 유효성 검증
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        self.validate_order_request(&request)?;
-
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // 2. 필요한 잔고 계산 및 확인
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        let (required_mint, required_amount) = self.calculate_required_balance(&request)?;
-        
-        self.check_balance(user_id, &required_mint, required_amount).await?;
-
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // 3. 주문 파라미터 준비
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // quote_mint 미리 결정 (여러 곳에서 사용되므로)
-        let quote_mint = request.quote_mint.unwrap_or_else(|| "USDT".to_string());
-
-        // 시장가 매수: 금액 기반만 지원 (quote_amount 필수, amount는 매칭 시 계산됨)
-        // 지정가 매수/모든 매도: 수량 기반 (amount 필수)
-        let (amount, remaining_amount, quote_amount, remaining_quote_amount) = 
-            if request.order_type == "buy" && request.order_side == "market" {
-                // 시장가 매수 금액 기반: amount는 0으로 시작 (매칭 시 계산됨)
-                let quote_amt = request.quote_amount.unwrap();
-                (Decimal::ZERO, Decimal::ZERO, Some(quote_amt), Some(quote_amt))
-            } else {
-                // 수량 기반 주문 (지정가 매수, 모든 매도)
-                let amt = request.amount.unwrap();
-                (amt, amt, None, None)
-            };
-
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // 3. 주문 ID 결정 (Java에서 전달된 ID 필수)
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // Java API 서버에서 생성한 주문 ID를 반드시 사용해야 함
-        // 모든 주문은 Java API를 통해 생성되므로 order_id가 필수임
-        let order_id = if let Some(java_order_id) = request.order_id {
-            eprintln!("[OrderService] Java에서 전달된 order_id 사용: {}", java_order_id);
-            java_order_id
-        } else {
-            // Java에서 order_id를 전달하지 않은 경우 에러 발생
-            eprintln!("[OrderService] ERROR: Java에서 order_id를 전달하지 않음! 주문 생성 실패");
-            return Err(anyhow::anyhow!("order_id is required. All orders must be created through Java API first."));
-        };
-
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // 4. 엔진에 주문 즉시 제출 (블로킹 없음!)
-        // 주의: 잔고 잠금은 process_submit_order에서 처리됨 (중복 방지)
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        let order_entry = OrderEntry {
-            id: order_id,  // Java에서 전달된 주문 ID
-            user_id,
-            order_type: request.order_type.clone(),
-            order_side: request.order_side.clone(),
-            base_mint: request.base_mint.clone(),
-            quote_mint: quote_mint.clone(),
-            price: request.price,
-            amount,
-            quote_amount,
-            filled_amount: Decimal::ZERO,
-            remaining_amount,
-            remaining_quote_amount,
-            created_at: Utc::now(),
-        };
-        
-        // 엔진에 제출 (비동기 처리, 백그라운드에서 처리)
-        // 실제 거래소와 동일하게 주문을 즉시 반환하고 백그라운드에서 처리
-        // 엔진이 내부적으로 WAL 기록 + DB 동기화 처리
-        // 주의: DB에 이미 주문이 있으므로, 엔진의 DB Writer는 InsertOrder를 보내지 않음
-        let order_id_for_log = order_entry.id;
-        eprintln!("[OrderService] 엔진에 주문 제출 시작: order_id={}, user_id={}, order_type={}, order_side={}, price={:?}, amount={}", 
-                 order_id_for_log, user_id, request.order_type, request.order_side, request.price, amount);
-        let engine_clone = self.engine.clone();
-        tokio::spawn(async move {
-            eprintln!("[OrderService] 엔진에 주문 제출 중: order_id={}", order_entry.id);
-            let engine_guard = engine_clone.lock().await;
-            eprintln!("[OrderService] 엔진 락 획득 완료: order_id={}", order_entry.id);
-            let order_id_after_submit = order_entry.id;
-            match engine_guard.submit_order(order_entry).await {
-                Ok(_) => {
-                    eprintln!("[OrderService] 엔진에 주문 제출 성공: order_id={}", order_id_after_submit);
-                }
-                Err(e) => {
-                    eprintln!("[OrderService] 엔진에 주문 제출 실패: order_id={}, error={}", order_id_after_submit, e);
-                }
-            }
-        });
-
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // 6. Order 객체 반환
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // DB 저장은 엔진의 백그라운드 워커가 처리
-        // (WAL → DB 동기화)
-        // 
-        // Note: 시장가 매수 금액 기반의 경우, amount는 매칭 후 계산됨
-        // 일단 0으로 설정 (엔진에서 매칭 후 업데이트)
-        let order_amount = if request.order_type == "buy" && request.order_side == "market" && request.quote_amount.is_some() {
-            Decimal::ZERO // 매칭 후 계산됨
-        } else {
-            request.amount.unwrap()
-        };
-        
-        let order = Order {
-            id: order_id,  // Java에서 전달된 주문 ID
-            user_id,
-            order_type: request.order_type,
-            order_side: request.order_side,
+        &self, user_id: u64, request: CreateOrderRequest,
+    ) -> Result<AcceptanceResult> {
+        anyhow::ensure!(user_id == request.user_id, super::order_receipt::ReceiptError::Invalid);
+        self.validate_order_request(&request)
+            .map_err(|_| super::order_receipt::ReceiptError::Invalid)?;
+        let accepted = order_receipt::accept(self.db.pool(), &request).await?;
+        if !accepted.created {
+            // 잔액·주문장이 이미 바뀌었어도 접수 원본은 유지된다. 재전송을 실행하지 않는다.
+            return Ok(accepted);
+        }
+        let market_buy = request.order_type == "buy" && request.order_side == "market";
+        let amount = if market_buy { Decimal::ZERO } else { request.amount.unwrap() };
+        let entry = OrderEntry {
+            id: request.order_id.unwrap(), user_id,
+            order_type: request.order_type, order_side: request.order_side,
             base_mint: request.base_mint,
-            quote_mint,
-            price: request.price,
-            amount: order_amount,
-            filled_amount: Decimal::ZERO,
-            filled_quote_amount: Decimal::ZERO,
-            status: "pending".to_string(),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            quote_mint: request.quote_mint.unwrap_or_else(|| "USDT".into()),
+            price: request.price, amount, quote_amount: request.quote_amount,
+            filled_amount: Decimal::ZERO, remaining_amount: amount,
+            remaining_quote_amount: if market_buy { request.quote_amount } else { None },
+            created_at: accepted.receipt.accepted_at,
         };
-
-        Ok(order)
+        // 분리된 tokio::spawn은 제거한다. 이 HTTP 작업이 영속 접수의 삽입 승자이며
+        // 큐 전달을 한 번 시도한다. 실패해도 접수 기록을 삭제하거나 거짓 거부로 바꾸지 않는다.
+        if let Err(error) = self.engine.lock().await.submit_order(entry).await {
+            eprintln!("[Order] 접수 저장 후 큐 전달 실패: order_id={}, error={}", accepted.receipt.order_id, error);
+        }
+        Ok(accepted)
     }
 
     /// 주문 취소
@@ -414,69 +242,4 @@ impl OrderService {
         Ok(())
     }
 
-    /// 필요한 잔고 계산
-    /// Calculate required balance
-    /// 
-    /// # Returns
-    /// * `(자산 종류, 필요 수량)`
-    /// * 매수: (quote_mint, price * amount) - USDT 필요
-    /// * 매도: (base_mint, amount) - SOL 등 필요
-    fn calculate_required_balance(
-        &self,
-        request: &CreateOrderRequest,
-    ) -> Result<(String, Decimal)> {
-        match request.order_type.as_str() {
-            "buy" => {
-                let quote_mint = request.quote_mint.clone().unwrap_or_else(|| "USDT".to_string());
-                
-                if request.order_side == "market" {
-                    // 시장가 매수: 금액 기반만 지원 (quote_amount 필수)
-                    let quote_amount = request.quote_amount.unwrap();
-                    Ok((quote_mint, quote_amount))
-                } else {
-                    // 지정가 매수: price * amount
-                    let price = request.price.unwrap();
-                    let amount = request.amount.unwrap();
-                    let required_amount = price * amount;
-                    Ok((quote_mint, required_amount))
-                }
-            }
-            "sell" => {
-                // 매도: base_mint 필요 (항상 수량 기반)
-                let amount = request.amount.unwrap();
-                Ok((request.base_mint.clone(), amount))
-            }
-            _ => bail!("Invalid order_type"),
-        }
-    }
-
-    /// 잔고 확인
-    /// Check balance
-    async fn check_balance(
-        &self,
-        user_id: u64,
-        mint: &str,
-        required_amount: Decimal,
-    ) -> Result<()> {
-        // 엔진에서 잔고 조회
-        let (available, _locked) = {
-            let engine_guard = self.engine.lock().await;
-            engine_guard
-                .get_balance(user_id, mint)
-                .await
-                .context("Failed to get balance from engine")?
-        };
-
-        // 잔고 부족 체크
-        if available < required_amount {
-            bail!(
-                "Insufficient balance: required {}, but only {} available",
-                required_amount,
-                available
-            );
-        }
-
-        Ok(())
-    }
 }
-

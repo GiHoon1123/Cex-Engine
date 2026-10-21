@@ -24,6 +24,8 @@ async fn create_schema(pool: &PgPool) -> Result<()> {
     .await?;
     pool.execute("CREATE TABLE orders (id BIGINT PRIMARY KEY, status TEXT)")
         .await?;
+    pool.execute("CREATE TABLE order_submissions (order_id BIGINT UNIQUE)").await?;
+    pool.execute(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/schema/order_receipts.sql"))).await?;
     Ok(())
 }
 
@@ -91,6 +93,16 @@ async fn startup_rejects_pending_order_even_without_locked_balance(pool: PgPool)
         .await?;
     assert_start_blocked(pool, "unresolved order").await
 }
+
+#[sqlx::test(migrations = false)]
+async fn startup_rejects_receipt_even_with_terminal_order(pool: PgPool) -> Result<()> {
+    create_schema(&pool).await?;
+    pool.execute("INSERT INTO orders VALUES (1,'filled'); INSERT INTO order_submissions VALUES (1);
+        INSERT INTO engine_order_receipts(order_id,user_id,order_type,order_side,base_mint,quote_mint,price,amount)
+        VALUES(1,101,'buy','limit','SOL','USDT',100,2)").await?;
+    assert_start_blocked(pool, "durable receipt").await
+}
+
 
 #[sqlx::test(migrations = false)]
 async fn startup_rejects_negative_available_balance(pool: PgPool) -> Result<()> {

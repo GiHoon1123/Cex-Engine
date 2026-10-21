@@ -714,7 +714,8 @@ impl Engine for HighPerformanceEngine {
         };
         
         eprintln!("[Engine] 엔진 스레드로 주문 전송 시도: order_id={}", order_id);
-        match self.order_tx.as_ref().unwrap().send(cmd) {
+        // 종료된 엔진·가득 찬 큐에서 panic이나 Tokio 작업의 무제한 blocking을 만들지 않는다.
+        match self.order_tx.as_ref().context("Engine submission channel is closed")?.try_send(cmd) {
             Ok(_) => {
                 eprintln!("[Engine] 엔진 스레드로 주문 전송 성공: order_id={}", order_id);
                 Ok(())
@@ -939,3 +940,10 @@ impl HighPerformanceEngine {
 #[cfg(test)]
 mod startup_tests;
 
+
+#[cfg(test)]
+impl HighPerformanceEngine {
+    pub(crate) fn test_queued_orders(&self) -> usize {
+        self.order_rx.len()
+    }
+}
