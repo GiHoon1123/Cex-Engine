@@ -124,12 +124,17 @@ async fn main() {
     let app_state =
         AppState::new(db.clone(), engine.handle()).expect("Failed to initialize AppState");
 
-    // Router 생성 (주문 생성/취소/헬스체크만 활성화)
+    // 고객 명령과 내부 감사 조회를 조립한다. 내부 키는 고객 인증과 별도로 주입한다.
+    let audit = crate::domains::cex::engine::runtime::audit::AuditReader::new(
+        engine.journal_directory(),
+        std::env::var("ENGINE_AUDIT_TOKEN").ok(),
+    ).expect("잘못된 감사 조회 설정");
     let app = Router::new()
         .merge(create_router())
         // Swagger UI 활성화
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
-        .with_state(app_state);
+        .with_state(app_state)
+        .layer(axum::Extension(audit));
 
     // 기본은 내부 루프백이다. 컨테이너 배포·격리 실행 검증에서만 명시적으로 주소를 준다.
     let http_address =

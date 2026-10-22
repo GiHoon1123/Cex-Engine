@@ -172,6 +172,7 @@ try:
     ready(platform, f"http://127.0.0.1:{platform_port}/swagger-ui/index.html", platform_log)
     sql((ROOT / "Cex-Engine/schema/order_receipts.sql").read_text())
     sql("INSERT INTO user_balances(user_id,mint_address,available,locked,created_at,updated_at) VALUES(101,'USDT',1000,0,now(),now())")
+    sql((ROOT/"Cex-Platform-Service/src/test/resources/ledger-opening-fixture.sql").read_text())
     with tempfile.TemporaryDirectory(prefix="cex-receipt-wal-") as wal:
         env = os.environ.copy()
         env.update({"DATABASE_HOST": database_address, "KAFKA_BOOTSTRAP_SERVERS": kafka.bootstrap,

@@ -254,6 +254,11 @@ impl HighPerformanceEngine {
             })
             .unwrap_or(0)
     }
+    /// 제어 객체의 경로만 제공한다. 실행 상태·채널·코어 생명주기를 조회에 넘기지 않는다.
+    pub fn journal_directory(&self) -> &std::path::Path {
+        &self.data_dir
+    }
+
     /// 배포와 격리 검증은 명시한 영속 디렉터리를 쓴다. 실행 중에는 바꾸지 않는다.
     pub fn with_data_dir(mut self, directory: impl Into<std::path::PathBuf>) -> Self {
         assert!(!self.running.load(Ordering::Acquire));

@@ -18,9 +18,9 @@ use std::{
 };
 
 #[derive(Serialize, Deserialize)]
-struct Genesis {
-    version: u32,
-    engine_id: String,
+pub(in super::super) struct Genesis {
+    pub(in super::super) version: u32,
+    pub(in super::super) engine_id: String,
     balances: Vec<(u64, String, Decimal, Decimal)>,
 }
 #[derive(Serialize, Deserialize)]
@@ -66,7 +66,10 @@ fn digest(payload: &str) -> Vec<u8> {
         .to_bytes()
         .to_vec()
 }
-fn decode<T: serde::de::DeserializeOwned>(payload: String, checksum: Vec<u8>) -> Result<T> {
+pub(in super::super) fn decode<T: serde::de::DeserializeOwned>(
+    payload: String,
+    checksum: Vec<u8>,
+) -> Result<T> {
     ensure!(digest(&payload) == checksum, "Journal checksum mismatch");
     serde_json::from_str(&payload).context("Invalid journal record")
 }

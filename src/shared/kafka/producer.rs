@@ -12,7 +12,7 @@
 // - 초기 구성은 토픽마다 파티션 1개
 // - 동일 엔진의 체결·취소는 같은 엔진 식별자를 키로 사용
 // - 한 코어의 결과는 같은 파티션에서 순서대로 소비
-// - 정산용: trade_executed, order_cancelled, market_order_completed 발행
+// - 정산용: 체결·취소·시장가 종료·전체 거절 발행
 //
 // 특징:
 // - 비동기 발행 (논블로킹)
@@ -58,68 +58,6 @@ impl KafkaProducer {
         Ok(Self { producer })
     }
 
-    /// 체결 이벤트 발행
-    /// Publish trade executed event
-    ///
-    /// # Arguments
-    /// * `event` - 체결 이벤트 데이터
-    ///
-    /// # Returns
-    /// 발행 성공 여부 (비동기, 논블로킹)
-    ///
-    /// # 파티션 키
-    /// - 저널의 엔진 식별자를 키로 사용해 체결과 취소의 상대 순서를 유지한다.
-    pub async fn publish_trade_executed(
-        &self,
-        event: &crate::shared::kafka::events::TradeExecutedEvent,
-    ) -> Result<()> {
-        eprintln!("[KafkaProducer] trade_executed 이벤트 발행 시작: buy_order_id={}, sell_order_id={}, buyer_id={}, seller_id={}", 
-                 event.buy_order_id, event.sell_order_id, event.buyer_id, event.seller_id);
-        let topic = "order-events";
-        // 같은 코어가 확정한 모든 결과는 동일한 키를 사용한다.
-        let partition_key = event.engine_id.clone();
-        self.publish(topic, Some(&partition_key), event).await
-    }
-
-    /// 취소 이벤트 발행
-    /// Publish order cancelled event
-    ///
-    /// # Arguments
-    /// * `event` - 취소 이벤트 데이터
-    ///
-    /// # Returns
-    /// 발행 성공 여부 (비동기, 논블로킹)
-    ///
-    /// # 파티션 키
-    /// - 체결과 동일한 엔진 식별자를 키로 사용한다.
-    pub async fn publish_order_cancelled(
-        &self,
-        event: &crate::shared::kafka::events::OrderCancelledEvent,
-    ) -> Result<()> {
-        let topic = "order-events";
-        // 주문 소유자가 달라도 같은 엔진 결과의 순서는 바꾸지 않는다.
-        let partition_key = event.engine_id.clone();
-        self.publish(topic, Some(&partition_key), event).await
-    }
-
-    /// 같은 엔진 키를 사용해 개별 체결 뒤의 시장가 종료·예약 반환 순서를 보존한다.
-    pub(crate) async fn publish_market_order_completed(
-        &self,
-        event: &crate::shared::kafka::events::MarketOrderCompletedEvent<'_>,
-    ) -> Result<()> {
-        self.publish("order-events", Some(&event.engine_id), event)
-            .await
-    }
-
-    /// 거절도 같은 엔진 키를 사용한다. 출력 확인 이전에는 전달 커서를 진행하지 않는다.
-    pub(crate) async fn publish_order_rejected(
-        &self,
-        event: &crate::shared::kafka::events::OrderRejectedEvent<'_>,
-    ) -> Result<()> {
-        self.publish("order-events", Some(&event.engine_id), event)
-            .await
-    }
-
     /// 호가는 금융 정산 토픽과 분리한다. 같은 엔진의 공개 순서는 한 파티션으로
     /// 고정하며, 브로커 확인 전에는 해당 저널 위치의 전달을 완료하지 않는다.
     pub(crate) async fn publish_market_snapshot(
@@ -143,12 +81,24 @@ impl KafkaProducer {
         // JSON 직렬화
         let json = serde_json::to_string(value).context("Failed to serialize event to JSON")?;
 
-        // FutureRecord 생성
+        self.publish_payload(topic, key, &json).await
+    }
+
+    /// 감사 조회와 같은 직렬화 결과를 발행한다. JSON 문자열을 다시 JSON 문자열로 감싸지 않는다.
+    pub(crate) async fn publish_financial_payload(
+        &self,
+        engine_id: &str,
+        payload: &str,
+    ) -> Result<()> {
+        self.publish_payload("order-events", Some(engine_id), payload)
+            .await
+    }
+    async fn publish_payload(&self, topic: &str, key: Option<&str>, json: &str) -> Result<()> {
         let mut record = FutureRecord::to(topic);
         if let Some(k) = key {
             record = record.key(k);
         }
-        record = record.payload(&json);
+        record = record.payload(json);
 
         // 출력 워커가 브로커의 완료 확인을 기다린다. 짧은 별도 시간 제한으로
         // 확인 대기를 끊지 않고 클라이언트의 전달 제한 시간을 따른다.
@@ -193,35 +143,5 @@ mod tests {
         assert!(result
             .expect("client delivery deadline did not finish")
             .is_err());
-    }
-
-    #[tokio::test]
-    #[ignore] // Kafka 서버 필요
-    async fn test_publish_trade_executed() {
-        use crate::shared::kafka::events::TradeExecutedEvent;
-        use chrono::Utc;
-        use rust_decimal::Decimal;
-
-        let producer = KafkaProducer::new("localhost:9092").unwrap();
-        let event = TradeExecutedEvent {
-            event_id: "example:1:0".into(),
-            engine_id: "example".into(),
-            event_type: "trade_executed".to_string(),
-            buy_order_id: 100,
-            sell_order_id: 101,
-            buyer_id: 1,
-            seller_id: 2,
-            price: Decimal::new(10000, 2),
-            amount: Decimal::new(1, 0),
-            base_mint: "SOL".to_string(),
-            quote_mint: "USDT".to_string(),
-            timestamp: Utc::now(),
-            buyer_fee_rate: Decimal::ZERO,
-            seller_fee_rate: Decimal::ZERO,
-            buyer_fee: Decimal::ZERO,
-            seller_fee: Decimal::ZERO,
-        };
-        let result = producer.publish_trade_executed(&event).await;
-        assert!(result.is_ok());
     }
 }

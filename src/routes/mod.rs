@@ -3,7 +3,7 @@ use crate::shared::handlers::health::health_check;
 use crate::shared::services::AppState;
 use axum::{routing::get, Router};
 
-/// 엔진의 HTTP 진입점: 헬스체크와 거래 명령만 등록한다.
+/// 엔진의 HTTP 진입점: 헬스체크·거래 명령·내부 감사 조회를 등록한다.
 ///
 /// 사용자 로그인과 토큰 발급은 Java 플랫폼의 책임이다. 엔진이 사용자 인증을
 /// 처리한다는 의미로 해석되지 않도록 비활성 인증 라우트도 코드에서 제거했다.
@@ -12,6 +12,7 @@ use axum::{routing::get, Router};
 pub fn create_router() -> Router<AppState> {
     Router::new()
         .route("/api/health", get(health_check))
+        .route("/internal/audit/results", get(crate::domains::cex::engine::runtime::audit::page))
         .nest("/api/cex", create_cex_router())
 }
 

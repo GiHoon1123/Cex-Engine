@@ -84,119 +84,116 @@ pub(super) struct DeliveryError {
     pub reason: String,
 }
 
+/// 출력과 감사 조회가 동일한 확정 이벤트를 직렬화한다. 코어 상태나 디비에 접근하지 않는다.
+/// 콜백으로 한 건씩 넘겨 체결 목록 전체를 다시 복사하지 않는다.
+pub(super) fn visit_events(
+    batch: &OutputBatch,
+    position: &Position<'_>,
+    mut send: impl FnMut(usize, String) -> std::result::Result<(), DeliveryError>,
+) -> std::result::Result<(), DeliveryError> {
+    match batch {
+        OutputBatch::Rejected { order, .. } => {
+            // 거절도 같은 명령의 영속 결과다. 오류 문자열이나 HTTP 상태를 반환 근거로
+            // 사용하지 않고 원본과 연결된 고유 결과를 체결·취소와 같은 순서로 공개한다.
+            let budget_buy = order.order_side == "market" && order.order_type == "buy";
+            let event = OrderRejectedEvent {
+                event_id: format!("{}:{}:0", position.engine_id, position.sequence),
+                engine_id: position.engine_id.into(),
+                event_type: "order_rejected",
+                order_id: order.id,
+                user_id: order.user_id,
+                order_type: &order.order_type,
+                order_side: &order.order_side,
+                base_mint: &order.base_mint,
+                quote_mint: &order.quote_mint,
+                price: order.price,
+                amount: if budget_buy { None } else { Some(order.amount) },
+                quote_amount: order.quote_amount,
+                fee_rate: order.fee_rate,
+                reason_code: "ENGINE_EXECUTION_REJECTED",
+                timestamp: position.timestamp,
+            };
+            send(0, encode(&event, 0)?)?;
+        }
+        OutputBatch::Submitted {
+            trades, completion, ..
+        } => {
+            for (index, output) in trades.iter().enumerate() {
+                let t = &output.trade;
+                let event = TradeExecutedEvent {
+                    event_id: format!("{}:{}:{}", position.engine_id, position.sequence, index),
+                    engine_id: position.engine_id.into(),
+                    event_type: "trade_executed".into(),
+                    buy_order_id: t.buy_order_id,
+                    sell_order_id: t.sell_order_id,
+                    buyer_id: t.buyer_id,
+                    seller_id: t.seller_id,
+                    price: t.price,
+                    amount: t.amount,
+                    base_mint: t.base_mint.clone(),
+                    quote_mint: t.quote_mint.clone(),
+                    timestamp: position.timestamp,
+                    buyer_fee_rate: t.buyer_fee_rate,
+                    seller_fee_rate: t.seller_fee_rate,
+                    buyer_fee: output.buyer_fee,
+                    seller_fee: output.seller_fee,
+                };
+                send(index, encode(&event, index)?)?;
+            }
+            if let Some(completion) = completion {
+                // 체결 뒤에 같은 파티션으로 전송한다. 마지막 이벤트 전 실패하면
+                // 전달 커서를 남겨 재시작에서 체결·종료 모두 같은 식별자로 재전달한다.
+                let event = MarketOrderCompletedEvent {
+                    event_id: format!(
+                        "{}:{}:{}",
+                        position.engine_id,
+                        position.sequence,
+                        trades.len()
+                    ),
+                    engine_id: position.engine_id.into(),
+                    event_type: "market_order_completed",
+                    timestamp: position.timestamp,
+                    result: completion,
+                };
+                send(trades.len(), encode(&event, trades.len())?)?;
+            }
+        }
+        OutputBatch::Cancelled(order) => {
+            let event = OrderCancelledEvent {
+                event_id: format!("{}:{}:0", position.engine_id, position.sequence),
+                engine_id: position.engine_id.into(),
+                event_type: "order_cancelled".into(),
+                order_id: order.id,
+                user_id: order.user_id,
+                base_mint: order.base_mint.clone(),
+                quote_mint: order.quote_mint.clone(),
+                timestamp: position.timestamp,
+            };
+            send(0, encode(&event, 0)?)?;
+        }
+    }
+    Ok(())
+}
+fn encode(value: &impl Serialize, index: usize) -> std::result::Result<String, DeliveryError> {
+    serde_json::to_string(value).map_err(|error| DeliveryError {
+        next_event: index,
+        reason: error.to_string(),
+    })
+}
+
 pub(super) fn deliver(
     producer: &KafkaProducer,
     batch: &OutputBatch,
     position: &Position<'_>,
     runtime: &tokio::runtime::Runtime,
 ) -> std::result::Result<(), DeliveryError> {
-    runtime.block_on(async {
-        match batch {
-            OutputBatch::Rejected { order, .. } => {
-                // 거절도 같은 명령의 영속 결과다. 오류 문자열이나 HTTP 상태를 반환 근거로
-                // 사용하지 않고 원본과 연결된 고유 결과를 체결·취소와 같은 순서로 공개한다.
-                let budget_buy = order.order_side == "market" && order.order_type == "buy";
-                let event = OrderRejectedEvent {
-                    event_id: format!("{}:{}:0", position.engine_id, position.sequence),
-                    engine_id: position.engine_id.into(),
-                    event_type: "order_rejected",
-                    order_id: order.id,
-                    user_id: order.user_id,
-                    order_type: &order.order_type,
-                    order_side: &order.order_side,
-                    base_mint: &order.base_mint,
-                    quote_mint: &order.quote_mint,
-                    price: order.price,
-                    amount: if budget_buy { None } else { Some(order.amount) },
-                    quote_amount: order.quote_amount,
-                    fee_rate: order.fee_rate,
-                    reason_code: "ENGINE_EXECUTION_REJECTED",
-                    timestamp: position.timestamp,
-                };
-                producer
-                    .publish_order_rejected(&event)
-                    .await
-                    .map_err(|error| DeliveryError {
-                        next_event: 0,
-                        reason: format!("{error:#}"),
-                    })?;
-            }
-            OutputBatch::Submitted {
-                trades, completion, ..
-            } => {
-                for (index, output) in trades.iter().enumerate() {
-                    let t = &output.trade;
-                    let event = TradeExecutedEvent {
-                        event_id: format!("{}:{}:{}", position.engine_id, position.sequence, index),
-                        engine_id: position.engine_id.into(),
-                        event_type: "trade_executed".into(),
-                        buy_order_id: t.buy_order_id,
-                        sell_order_id: t.sell_order_id,
-                        buyer_id: t.buyer_id,
-                        seller_id: t.seller_id,
-                        price: t.price,
-                        amount: t.amount,
-                        base_mint: t.base_mint.clone(),
-                        quote_mint: t.quote_mint.clone(),
-                        timestamp: position.timestamp,
-                        buyer_fee_rate: t.buyer_fee_rate,
-                        seller_fee_rate: t.seller_fee_rate,
-                        buyer_fee: output.buyer_fee,
-                        seller_fee: output.seller_fee,
-                    };
-                    producer
-                        .publish_trade_executed(&event)
-                        .await
-                        .map_err(|error| DeliveryError {
-                            next_event: index,
-                            reason: format!("{error:#}"),
-                        })?;
-                }
-                if let Some(completion) = completion {
-                    // 체결 뒤에 같은 파티션으로 전송한다. 마지막 이벤트 전 실패하면
-                    // 전달 커서를 남겨 재시작에서 체결·종료 모두 같은 식별자로 재전달한다.
-                    let event = MarketOrderCompletedEvent {
-                        event_id: format!(
-                            "{}:{}:{}",
-                            position.engine_id,
-                            position.sequence,
-                            trades.len()
-                        ),
-                        engine_id: position.engine_id.into(),
-                        event_type: "market_order_completed",
-                        timestamp: position.timestamp,
-                        result: completion,
-                    };
-                    producer
-                        .publish_market_order_completed(&event)
-                        .await
-                        .map_err(|error| DeliveryError {
-                            next_event: trades.len(),
-                            reason: format!("{error:#}"),
-                        })?;
-                }
-            }
-            OutputBatch::Cancelled(order) => {
-                let event = OrderCancelledEvent {
-                    event_id: format!("{}:{}:0", position.engine_id, position.sequence),
-                    engine_id: position.engine_id.into(),
-                    event_type: "order_cancelled".into(),
-                    order_id: order.id,
-                    user_id: order.user_id,
-                    base_mint: order.base_mint.clone(),
-                    quote_mint: order.quote_mint.clone(),
-                    timestamp: position.timestamp,
-                };
-                producer
-                    .publish_order_cancelled(&event)
-                    .await
-                    .map_err(|error| DeliveryError {
-                        next_event: 0,
-                        reason: format!("{error:#}"),
-                    })?;
-            }
-        }
-        Ok(())
+    visit_events(batch, position, |index, payload| {
+        runtime
+            .block_on(producer.publish_financial_payload(position.engine_id, &payload))
+            .map_err(|error| DeliveryError {
+                next_event: index,
+                reason: format!("{error:#}"),
+            })
     })
 }
 

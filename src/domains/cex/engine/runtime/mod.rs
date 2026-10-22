@@ -32,3 +32,6 @@ mod journal;
 pub(crate) mod market;
 
 pub(crate) use submission::MarketCompletion;
+
+/// 커밋된 자체 저널의 읽기 전용 감사 조회 경로다.
+pub mod audit;
