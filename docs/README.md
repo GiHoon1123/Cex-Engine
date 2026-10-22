@@ -24,3 +24,5 @@
 - [시장가 IOC 종료와 미사용 예약 반환](decisions/013-market-ioc-completion.md): 체결 0건·부분·전량 결과, 영속 종료 이벤트, 순서·재생 검증.
 
 - [전체 주문 거절의 영속 결과와 예약 반환 근거](decisions/014-durable-order-rejection.md): 원본 검증·재시작·중복 처리·실제 장애 주입 검증.
+
+- [코어와 분리한 읽기 전용 저널 감사 조회](decisions/015-read-only-journal-audit.md): 확정 근거·불변 기록·오류 탐지·실제 프로세스 검증.
