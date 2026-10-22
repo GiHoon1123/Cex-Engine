@@ -32,6 +32,8 @@ proxy = None
 kafka = IsolatedKafka("cex-receipt-broker")
 evidence = {"container": container, "checks": []}
 secret = secrets.token_hex(32)
+service_token = secrets.token_hex(32)
+session_id = str(uuid4())
 
 
 def sql(statement):
@@ -47,7 +49,7 @@ def port():
 
 def http(url, body=None, headers=None):
     request = Request(url, data=None if body is None else json.dumps(body).encode(),
-                      headers={"Content-Type": "application/json", **(headers or {})})
+                      headers={"Content-Type": "application/json", "x-engine-service-token":service_token, **(headers or {})})
     try:
         response = urlopen(request, timeout=8)
     except HTTPError as error:
@@ -92,7 +94,7 @@ def stop(process):
 def jwt():
     def encode(value):
         return base64.urlsafe_b64encode(json.dumps(value).encode()).rstrip(b"=").decode()
-    unsigned = encode({"alg": "HS256", "typ": "JWT"}) + "." + encode({"sub": "101", "exp": int(time.time()) + 600})
+    unsigned = encode({"alg": "HS256", "typ": "JWT"}) + "." + encode({"iss":"cex-platform", "aud":"cex-api", "type":"access", "sid":session_id, "iat":int(time.time()), "sub": "101", "exp": int(time.time()) + 600})
     signature = base64.urlsafe_b64encode(hmac.new(secret.encode(), unsigned.encode(), hashlib.sha256).digest()).rstrip(b"=").decode()
     return unsigned + "." + signature
 
@@ -163,7 +165,7 @@ try:
     java = Path(os.environ.get("JAVA_HOME", "/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home")) / "bin/java"
     platform_command = [str(java), "-jar", str(ROOT / "Cex-Platform-Service/build/libs/cex-0.0.1-SNAPSHOT.jar"),
         f"--spring.datasource.url=jdbc:postgresql://{database_address}/cex", f"--server.port={platform_port}",
-        "--server.address=127.0.0.1", f"--jwt.secret={secret}", "--bot.bot-count=0", "--order.dispatch.enabled=false",
+        "--server.address=127.0.0.1", f"--jwt.secret={secret}", f"--engine.service.token={service_token}", "--bot.bot-count=0", "--order.dispatch.enabled=false",
         "--bot.binance-ws-url=ws://127.0.0.1:1", f"--spring.kafka.bootstrap-servers={kafka.bootstrap}",
         "--spring.kafka.listener.auto-startup=false", "--spring.kafka.producer.properties.max.block.ms=500",
         f"--engine.http.url=http://127.0.0.1:{proxy.server_port}", "--engine.http.timeout=300",
@@ -171,10 +173,13 @@ try:
     platform, platform_log = start(platform_command, "durable-acceptance-platform.log")
     ready(platform, f"http://127.0.0.1:{platform_port}/swagger-ui/index.html", platform_log)
     sql((ROOT / "Cex-Engine/schema/order_receipts.sql").read_text())
+    sql("INSERT INTO users(id,email,password_hash,role,enabled,trading_restricted,version,created_at,updated_at) VALUES(101,'receipt@test.invalid','unused','CUSTOMER',true,false,0,now(),now())")
+    sql(f"INSERT INTO refresh_tokens(user_id,session_id,token_hash,expires_at,revoked,created_at,updated_at) VALUES(101,'{session_id}','{session_id}',now()+interval '1 day',false,now(),now())")
     sql("INSERT INTO user_balances(user_id,mint_address,available,locked,created_at,updated_at) VALUES(101,'USDT',1000,0,now(),now())")
     sql((ROOT/"Cex-Platform-Service/src/test/resources/ledger-opening-fixture.sql").read_text())
     with tempfile.TemporaryDirectory(prefix="cex-receipt-wal-") as wal:
         env = os.environ.copy()
+        env["ENGINE_SERVICE_TOKEN"] = service_token
         env.update({"DATABASE_HOST": database_address, "KAFKA_BOOTSTRAP_SERVERS": kafka.bootstrap,
                     "ENGINE_HTTP_ADDRESS": f"127.0.0.1:{engine_port}", "ENGINE_DATA_DIR": wal})
         binary = str(ROOT / "Cex-Engine/target/debug/cex-engine")

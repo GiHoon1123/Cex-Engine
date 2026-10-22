@@ -15,6 +15,7 @@ from uuid import uuid4
 ROOT = Path(__file__).resolve().parent.parent
 ARTIFACTS = ROOT.parent / ".local"
 DOCKER = shutil.which("docker") or "/usr/local/bin/docker"
+service_token = uuid4().hex + uuid4().hex
 prefix = "cex-output-" + uuid4().hex[:10]
 pg, kafka = prefix + "-pg", prefix + "-kafka"
 processes = []
@@ -40,7 +41,7 @@ def sql(statement):
 def http(path, body=None, method=None):
     request = Request(f"http://127.0.0.1:{engine_port}" + path,
         data=None if body is None else json.dumps(body).encode(), method=method,
-        headers={"Content-Type": "application/json"})
+        headers={"Content-Type": "application/json", "x-engine-service-token": service_token})
     try:
         response = urlopen(request, timeout=2)
     except HTTPError as error:
@@ -107,6 +108,7 @@ try:
     docker("exec", kafka, "/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "localhost:29092",
         "--create", "--topic", "market-events", "--partitions", "1", "--replication-factor", "1", stdout=subprocess.DEVNULL)
     env = os.environ.copy()
+    env["ENGINE_SERVICE_TOKEN"] = service_token
     env.update(DATABASE_HOST=database_address, ENGINE_HTTP_ADDRESS=f"127.0.0.1:{engine_port}",
         KAFKA_BOOTSTRAP_SERVERS=f"127.0.0.1:{kafka_port}", ENGINE_DATA_DIR=journal_directory.name)
     engine_log = ARTIFACTS / "engine-output-process.log"

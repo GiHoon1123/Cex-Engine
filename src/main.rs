@@ -97,6 +97,10 @@ struct ApiDoc;
 
 #[tokio::main]
 async fn main() {
+    // 필수 서비스 신원을 엔진 워커 시작 전에 검사한다. 설정 누락 시 명령 수신을 시작하지 않는다.
+    let service_token = std::env::var("ENGINE_SERVICE_TOKEN").expect("ENGINE_SERVICE_TOKEN이 필요합니다");
+    assert!((32..=1024).contains(&service_token.len()), "잘못된 서비스 키 길이");
+
     // DB 연결
     // Docker 컨테이너 환경에서는 환경 변수로 호스트 지정 가능
     // 기본값: 프로덕션은 컨테이너 이름, 개발은 localhost
@@ -130,7 +134,7 @@ async fn main() {
         std::env::var("ENGINE_AUDIT_TOKEN").ok(),
     ).expect("잘못된 감사 조회 설정");
     let app = Router::new()
-        .merge(create_router())
+        .merge(create_router(&service_token))
         // Swagger UI 활성화
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .with_state(app_state)

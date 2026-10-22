@@ -303,7 +303,7 @@ async fn router(pool: PgPool) -> Result<(axum::Router, HighPerformanceEngine)> {
     use crate::shared::services::AppState;
     let db = Database::noop(pool.clone());
     let (_, engine) = service(pool.clone()).await?;
-    let router = crate::routes::create_router().with_state(AppState {
+    let router = crate::routes::create_router("isolated-engine-service-token-32-bytes").with_state(AppState {
         db: db.clone(),
         engine: engine.handle(),
         cex_state: CexState::new(db.clone(), engine.handle()),
@@ -314,7 +314,7 @@ async fn router(pool: PgPool) -> Result<(axum::Router, HighPerformanceEngine)> {
 }
 
 fn http_request() -> axum::http::Request<axum::body::Body> {
-    axum::http::Request::post("/api/cex/orders").header("Content-Type","application/json")
+    axum::http::Request::post("/api/cex/orders").header("Content-Type","application/json").header("x-engine-service-token","isolated-engine-service-token-32-bytes")
         .body(axum::body::Body::from(r#"{"order_id":1,"user_id":101,"order_type":"buy","order_side":"limit","base_mint":"SOL","price":"100","amount":"2"}"#)).unwrap()
 }
 

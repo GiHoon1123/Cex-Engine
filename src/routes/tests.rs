@@ -35,7 +35,7 @@ fn app_with_engine(engine: crate::domains::cex::engine::runtime::EngineHandle) -
         cex_state: CexState::new(db, engine.clone()),
         engine,
     };
-    create_router().with_state(state)
+    create_router("isolated-engine-service-token-32-bytes").with_state(state)
 }
 
 /// 인증 코드를 제거해도 외부 의존성 없이 헬스체크에 응답해야 한다.
@@ -111,6 +111,7 @@ async fn trading_routes_still_validate_request_bodies() {
     let (router, _engine) = app().await;
     for path in ["/api/cex/orders", "/api/cex/balances/sync"] {
         let request = Request::post(path)
+            .header("x-engine-service-token", "isolated-engine-service-token-32-bytes")
             .header("Content-Type", "application/json")
             .body(Body::from("{}"))
             .unwrap();
@@ -130,6 +131,7 @@ async fn cancellation_still_requires_user_id() {
     let response = router
         .oneshot(
             Request::delete("/api/cex/orders/1")
+                .header("x-engine-service-token", "isolated-engine-service-token-32-bytes")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -156,4 +158,19 @@ async fn output_failure_closed_handle_reports_unavailable_health() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+}
+
+/// 사용자 JWT나 감사 키는 플랫폼 명령 키를 대신할 수 없다. 본문 파싱보다 먼저 차단한다.
+#[tokio::test]
+async fn command_boundary_requires_platform_identity() {
+    let (router, _engine) = app().await;
+    for key in [None, Some("wrong-service-token")] {
+        let mut request = Request::post("/api/cex/orders")
+            .header("Authorization", "Bearer customer-token")
+            .header("x-engine-audit-token", "isolated-engine-service-token-32-bytes")
+            .header("Content-Type", "application/json");
+        if let Some(key) = key { request = request.header("x-engine-service-token", key); }
+        let response = router.clone().oneshot(request.body(Body::from("{}")).unwrap()).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
 }
