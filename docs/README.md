@@ -26,3 +26,5 @@
 - [전체 주문 거절의 영속 결과와 예약 반환 근거](decisions/014-durable-order-rejection.md): 원본 검증·재시작·중복 처리·실제 장애 주입 검증.
 
 - [코어와 분리한 읽기 전용 저널 감사 조회](decisions/015-read-only-journal-audit.md): 확정 근거·불변 기록·오류 탐지·실제 프로세스 검증.
+
+- [플랫폼 신원으로 거래 명령 보호](decisions/016-platform-service-boundary.md): API 전용 인증·서비스 경계·실제 검증·남은 운영 요건.
