@@ -1,0 +1,556 @@
+{
+  "date": "2026-10-23",
+  "scope": "세 저장소와 공통 루트의 모든 관리 Markdown; 생성물·설치 패키지·JSON 증적 제외",
+  "documents": 80,
+  "additional_source_excerpts": 32,
+  "new_product_tests": 0,
+  "product_tests_run": false,
+  "coverage": [
+    {
+      "document": "AGENTS.md",
+      "application": "관련 구현 예제 연결"
+    },
+    {
+      "document": "Cex-Engine/DELETE_REVIEW.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Engine/README.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Engine/docs/README.md",
+      "application": "관련 구현 예제 연결"
+    },
+    {
+      "document": "Cex-Engine/docs/decisions/001-remove-engine-auth.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Engine/docs/decisions/002-block-incomplete-startup-state.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Engine/docs/decisions/003-durable-order-acceptance.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Engine/docs/decisions/004-atomic-trade-cache-settlement.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Engine/docs/decisions/005-exact-amount-boundaries-review.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Engine/docs/decisions/006-atomic-order-memory-commit.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Engine/docs/decisions/007-single-owner-engine-state.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Engine/docs/decisions/008-ordered-output-worker.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Engine/docs/decisions/009-durable-journal-recovery.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Engine/docs/decisions/010-remove-engine-bot.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Engine/docs/decisions/011-durable-market-output.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Engine/docs/decisions/012-received-asset-fees.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Engine/docs/decisions/013-market-ioc-completion.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Engine/docs/decisions/014-durable-order-rejection.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Engine/docs/decisions/015-read-only-journal-audit.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Engine/docs/decisions/016-platform-service-boundary.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Frontend/AGENTS.md",
+      "application": "관련 구현 예제 연결"
+    },
+    {
+      "document": "Cex-Frontend/PROJECT_PLAN.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Frontend/README.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Frontend/docs/README.md",
+      "application": "관련 구현 예제 연결"
+    },
+    {
+      "document": "Cex-Frontend/docs/decisions/001-platform-market-and-btc.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Frontend/docs/decisions/002-next-security-update.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Frontend/docs/plans/frontend-architecture.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Platform-Service/README.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/BENCHMARK.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/README.md",
+      "application": "관련 구현 예제 연결"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/SETTLEMENT_DESIGN.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/decisions/001-remove-startup-balance-replay.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/decisions/002-preserve-uncertain-order-submission.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/decisions/003-idempotent-order-submission.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/decisions/004-verify-durable-engine-receipt.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/decisions/005-common-exact-amount-contract.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/decisions/006-engine-event-inbox.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/decisions/007-platform-market-gateway.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/decisions/008-fee-authority-and-balance-deltas.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/decisions/009-market-ioc-settlement.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/decisions/010-durable-order-resolution.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/decisions/011-asset-ledger-and-reconciliation.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/decisions/012-platform-access-approval-audit.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/decisions/013-supported-runtime-and-dependency-audit.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/decisions/014-operator-webauthn-mfa.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/decisions/015-operator-recovery-and-access-lifecycle.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/decisions/016-operator-role-approval-and-bound-authentication.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/decisions/017-bound-approval-for-existing-operations.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/decisions/018-didit-identity-verification-and-trading-policy.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/decisions/019-platform-kyc-reconciliation.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/decisions/020-customer-declaration-and-initial-risk.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/decisions/021-edd-case-and-independent-review.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/reference/access-control-compliance.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "Cex-Platform-Service/src/main/java/dustin/cex/domains/engine/Description.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "README.md",
+      "application": "관련 구현 예제 연결"
+    },
+    {
+      "document": "docs/reviews/2026-10-21-engine-design-identity-audit.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "docs/reviews/2026-10-21-git-author-correction.md",
+      "application": "관련 구현 예제 연결"
+    },
+    {
+      "document": "docs/reviews/2026-10-21-order-safety-review.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "docs/reviews/2026-10-23-document-code-excerpts.md",
+      "application": "관련 구현 예제 연결"
+    },
+    {
+      "document": "docs/roadmap/README.md",
+      "application": "관련 구현 예제 연결"
+    },
+    {
+      "document": "docs/roadmap/access-approval-audit.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "docs/roadmap/asset-ledger-reconciliation.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "docs/roadmap/bound-approval.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "docs/roadmap/btc-platform-market.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "docs/roadmap/compliance-security.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "docs/roadmap/customer-initial-risk.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "docs/roadmap/didit-kyc.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "docs/roadmap/edd-case-review.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "docs/roadmap/features.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "docs/roadmap/fee-consistency.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "docs/roadmap/infrastructure.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "docs/roadmap/kyc-identity.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "docs/roadmap/market-ioc.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "docs/roadmap/operator-lifecycle.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "docs/roadmap/operator-mfa.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "docs/roadmap/operator-role-approval.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "docs/roadmap/order-resolution.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "docs/roadmap/platform-kyc-reconciliation.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "docs/roadmap/reliability.md",
+      "application": "실제 코드 발췌"
+    },
+    {
+      "document": "docs/roadmap/runtime-upgrade.md",
+      "application": "실제 코드 발췌"
+    }
+  ],
+  "entries": [
+    {
+      "document": "docs/roadmap/features.md",
+      "source": "Cex-Platform-Service/src/main/java/dustin/cex/domains/order/service/OrderService.java",
+      "first_line": 210,
+      "lines": 10,
+      "sha256": "10c1305744bc551218191cd6b7bde15683c600c44e0eddd198d6aa380204990f"
+    },
+    {
+      "document": "docs/roadmap/reliability.md",
+      "source": "Cex-Platform-Service/src/main/java/dustin/cex/domains/ledger/LedgerService.java",
+      "first_line": 64,
+      "lines": 13,
+      "sha256": "7221d66c7bcd93bc298d46e986620974a8db6bb732d5bd567cd0307cb115ad95"
+    },
+    {
+      "document": "docs/roadmap/compliance-security.md",
+      "source": "Cex-Platform-Service/src/main/java/dustin/cex/domains/security/OperatorSessionPolicy.java",
+      "first_line": 19,
+      "lines": 10,
+      "sha256": "aeb02ff28ddb6fe3c3dc3dcf157b0779f79424895a9fd3f701a674af38fcfe55"
+    },
+    {
+      "document": "docs/roadmap/infrastructure.md",
+      "source": "Cex-Engine/src/routes/mod.rs",
+      "first_line": 11,
+      "lines": 15,
+      "sha256": "2c7932a66791e83b92953ab7f6bfad32c878bfc760aa1a84d6d11bb93b20caac"
+    },
+    {
+      "document": "docs/roadmap/didit-kyc.md",
+      "source": "Cex-Platform-Service/src/main/java/dustin/cex/domains/kyc/DiditWebhookVerifier.java",
+      "first_line": 45,
+      "lines": 10,
+      "sha256": "98002f6c01f76d120bf2c3d2e68f3e15e745c69e7fcdd40c7ed4bc696b5c3178"
+    },
+    {
+      "document": "docs/roadmap/access-approval-audit.md",
+      "source": "Cex-Platform-Service/src/main/java/dustin/cex/domains/security/SecurityConfiguration.java",
+      "first_line": 20,
+      "lines": 4,
+      "sha256": "54723fe011b09f816f7aa4030a05a2f57618ca709be20b3245d6d4572ece890a"
+    },
+    {
+      "document": "docs/roadmap/asset-ledger-reconciliation.md",
+      "source": "Cex-Platform-Service/src/main/java/dustin/cex/domains/ledger/LedgerService.java",
+      "first_line": 64,
+      "lines": 13,
+      "sha256": "7221d66c7bcd93bc298d46e986620974a8db6bb732d5bd567cd0307cb115ad95"
+    },
+    {
+      "document": "docs/roadmap/bound-approval.md",
+      "source": "Cex-Platform-Service/src/main/java/dustin/cex/domains/security/OperatorMfaService.java",
+      "first_line": 172,
+      "lines": 19,
+      "sha256": "13420d4eb761da89c65fc8b1e11124a97e52110875fcd17536851c56a72cf80c"
+    },
+    {
+      "document": "docs/roadmap/btc-platform-market.md",
+      "source": "Cex-Frontend/src/lib/market.ts",
+      "first_line": 18,
+      "lines": 3,
+      "sha256": "35eeb173ffcdaf083e158d5b26cb89c3ec80920d496592afa04ae1da8c3e0164"
+    },
+    {
+      "document": "docs/roadmap/customer-initial-risk.md",
+      "source": "Cex-Platform-Service/src/main/java/dustin/cex/domains/cdd/CddCrypto.java",
+      "first_line": 50,
+      "lines": 7,
+      "sha256": "e052fe236c6adf160f0763de76e1c0a76c6188e88689926ca3b3885a17a5043f"
+    },
+    {
+      "document": "docs/roadmap/edd-case-review.md",
+      "source": "Cex-Platform-Service/src/main/java/dustin/cex/domains/cdd/EddService.java",
+      "first_line": 53,
+      "lines": 3,
+      "sha256": "fc2149d0b34412808ee8b376c7dafad59eaeab6acdbe005fd5ce6b3dcfcd24e5"
+    },
+    {
+      "document": "docs/roadmap/fee-consistency.md",
+      "source": "Cex-Platform-Service/src/main/java/dustin/cex/domains/fee/service/FeeConfigService.java",
+      "first_line": 51,
+      "lines": 7,
+      "sha256": "e9224df7d3df185634bef2449aa33c6de0aaf351ae4b77d330f543cba3b73866"
+    },
+    {
+      "document": "docs/roadmap/kyc-identity.md",
+      "source": "Cex-Platform-Service/src/main/java/dustin/cex/domains/kyc/DiditWebhookVerifier.java",
+      "first_line": 45,
+      "lines": 10,
+      "sha256": "98002f6c01f76d120bf2c3d2e68f3e15e745c69e7fcdd40c7ed4bc696b5c3178"
+    },
+    {
+      "document": "docs/roadmap/market-ioc.md",
+      "source": "Cex-Platform-Service/src/main/java/dustin/cex/shared/kafka/KafkaOrderEventConsumer.java",
+      "first_line": 164,
+      "lines": 14,
+      "sha256": "2d9424429a03ec7bc7d39c79c3561d30292ff06a7e98d1b2423eeafe69f73b48"
+    },
+    {
+      "document": "docs/roadmap/operator-lifecycle.md",
+      "source": "Cex-Platform-Service/src/main/java/dustin/cex/domains/security/OperatorSessionPolicy.java",
+      "first_line": 19,
+      "lines": 10,
+      "sha256": "aeb02ff28ddb6fe3c3dc3dcf157b0779f79424895a9fd3f701a674af38fcfe55"
+    },
+    {
+      "document": "docs/roadmap/operator-mfa.md",
+      "source": "Cex-Platform-Service/src/main/java/dustin/cex/domains/security/OperatorMfaService.java",
+      "first_line": 136,
+      "lines": 8,
+      "sha256": "30b4c35a66bba297db88f3e8bff5cb341bf640b25133d2dd97bb316d0bed589f"
+    },
+    {
+      "document": "docs/roadmap/operator-role-approval.md",
+      "source": "Cex-Platform-Service/src/main/java/dustin/cex/domains/security/OperatorRoleService.java",
+      "first_line": 113,
+      "lines": 13,
+      "sha256": "b9f6a0182b565464b316a9e3c751ed19729741f0dec032fae6de796c45d4e2cd"
+    },
+    {
+      "document": "docs/roadmap/order-resolution.md",
+      "source": "Cex-Platform-Service/src/main/java/dustin/cex/domains/order/service/OrderDispatchService.java",
+      "first_line": 35,
+      "lines": 18,
+      "sha256": "8594e5740508124ba7b26faf47fbbd0af7af71a4c48753801cbeff96a35e47ae"
+    },
+    {
+      "document": "docs/roadmap/platform-kyc-reconciliation.md",
+      "source": "Cex-Platform-Service/src/main/java/dustin/cex/domains/kyc/KycReconciliationService.java",
+      "first_line": 58,
+      "lines": 18,
+      "sha256": "ec276edf375911bec9bc52fbad1d2c2813c34210f8139797093f6119e78a2199"
+    },
+    {
+      "document": "docs/roadmap/runtime-upgrade.md",
+      "source": "Cex-Platform-Service/src/main/java/dustin/cex/domains/settlement/trade/scheduler/TradeSettlementScheduler.java",
+      "first_line": 78,
+      "lines": 7,
+      "sha256": "64b4ab5514d2bc79c2f395638b71f1624869a108ce3f82a276036e60d9f1f92a"
+    },
+    {
+      "document": "docs/reviews/2026-10-21-order-safety-review.md",
+      "source": "Cex-Platform-Service/src/main/java/dustin/cex/domains/order/service/OrderService.java",
+      "first_line": 210,
+      "lines": 10,
+      "sha256": "10c1305744bc551218191cd6b7bde15683c600c44e0eddd198d6aa380204990f"
+    },
+    {
+      "document": "docs/reviews/2026-10-21-engine-design-identity-audit.md",
+      "source": "Cex-Engine/src/domains/cex/engine/runtime/handle.rs",
+      "first_line": 20,
+      "lines": 5,
+      "sha256": "72c3151047bb0dcb4f37727e594f1c67cb0f4a4770a75e29a546fc4f28c3c4a2"
+    },
+    {
+      "document": "Cex-Engine/DELETE_REVIEW.md",
+      "source": "Cex-Engine/src/routes/mod.rs",
+      "first_line": 11,
+      "lines": 15,
+      "sha256": "2c7932a66791e83b92953ab7f6bfad32c878bfc760aa1a84d6d11bb93b20caac"
+    },
+    {
+      "document": "Cex-Engine/README.md",
+      "source": "Cex-Engine/src/domains/cex/engine/runtime/handle.rs",
+      "first_line": 20,
+      "lines": 5,
+      "sha256": "72c3151047bb0dcb4f37727e594f1c67cb0f4a4770a75e29a546fc4f28c3c4a2"
+    },
+    {
+      "document": "Cex-Platform-Service/README.md",
+      "source": "Cex-Platform-Service/src/main/java/dustin/cex/shared/kafka/EngineEventInbox.java",
+      "first_line": 34,
+      "lines": 8,
+      "sha256": "80cc8dfb3e1bbc11d8c5ba9d65cff4b493cfb19625943a74ccc3d01455d8406f"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/SETTLEMENT_DESIGN.md",
+      "source": "Cex-Platform-Service/src/main/java/dustin/cex/domains/settlement/trade/scheduler/TradeSettlementScheduler.java",
+      "first_line": 78,
+      "lines": 7,
+      "sha256": "64b4ab5514d2bc79c2f395638b71f1624869a108ce3f82a276036e60d9f1f92a"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/reference/access-control-compliance.md",
+      "source": "Cex-Platform-Service/src/main/java/dustin/cex/domains/security/OperatorSessionPolicy.java",
+      "first_line": 19,
+      "lines": 10,
+      "sha256": "aeb02ff28ddb6fe3c3dc3dcf157b0779f79424895a9fd3f701a674af38fcfe55"
+    },
+    {
+      "document": "Cex-Frontend/README.md",
+      "source": "Cex-Frontend/src/lib/market.ts",
+      "first_line": 18,
+      "lines": 3,
+      "sha256": "35eeb173ffcdaf083e158d5b26cb89c3ec80920d496592afa04ae1da8c3e0164"
+    },
+    {
+      "document": "Cex-Frontend/PROJECT_PLAN.md",
+      "source": "Cex-Frontend/src/lib/market.ts",
+      "first_line": 18,
+      "lines": 3,
+      "sha256": "35eeb173ffcdaf083e158d5b26cb89c3ec80920d496592afa04ae1da8c3e0164"
+    },
+    {
+      "document": "Cex-Frontend/docs/plans/frontend-architecture.md",
+      "source": "Cex-Frontend/src/lib/market.ts",
+      "first_line": 18,
+      "lines": 3,
+      "sha256": "35eeb173ffcdaf083e158d5b26cb89c3ec80920d496592afa04ae1da8c3e0164"
+    },
+    {
+      "document": "Cex-Platform-Service/docs/BENCHMARK.md",
+      "source": "Cex-Platform-Service/build.gradle",
+      "first_line": 105,
+      "lines": 11,
+      "sha256": "00a8ad262d91a5e2055b0e220ac048721a7573590483016975414927be89708f"
+    },
+    {
+      "document": "Cex-Platform-Service/src/main/java/dustin/cex/domains/engine/Description.md",
+      "source": "Cex-Platform-Service/build.gradle",
+      "first_line": 105,
+      "lines": 11,
+      "sha256": "00a8ad262d91a5e2055b0e220ac048721a7573590483016975414927be89708f"
+    }
+  ]
+}
