@@ -77,6 +77,23 @@ flowchart LR
 - `Drop`으로 닫힘 표식을 게시한다. 출력 워커의 반환·오류·패닉 경로에서 새 요청 실행을 닫기 위한 생명주기 처리다. 금융 상태를 잠그는 Mutex가 아니다.
 - 출력 루프는 정적 타입의 전달 함수를 받는다. 테스트는 실패 대역을 넣고 제품은 Kafka 클라이언트를 호출한다. 실행 중 플러그인·정책 설정은 추가하지 않았다.
 
+### 현재 코드로 연결해 읽기
+
+출력 워커는 영속 커밋이 확인된 순번 범위만 읽어 공개한다. 아래는 2026-10-23 현재 [실제 소스](../../src/domains/cex/engine/runtime/output.rs#L239)의 연속 행 발췌다. 메서드 일부일 수 있으므로 독립 실행 예제로 사용하지 않고 앞뒤 검증과 함께 읽는다. 과거 사이클의 코드/측정 시점은 본문의 기록을 유지한다.
+
+```rust
+if cursor < progress.durable.load(Ordering::Acquire) {
+    let record = store.read(cursor + 1)?;
+    if let super::journal::Outcome::Applied(Some(batch)) = &record.outcome {
+        let position = Position {
+            engine_id: &engine_id,
+            sequence: record.sequence,
+            timestamp: record.timestamp,
+        };
+```
+
+`Ordering::Acquire`는 저장 워커가 공개한 확정 진행을 관찰한다. 채널에 넣었다는 사실과 디스크 확정은 다르다. 전송 실패 시 커서를 진행시키지 않는 후속 처리까지 있어야 재전달 계약이 성립한다.
+
 ## 작성한 테스트
 
 [output_tests.rs](../../src/domains/cex/engine/runtime/engine/output_tests.rs)에 실제 제품 엔진 루프를 사용하는 7개 회귀를 작성했다.

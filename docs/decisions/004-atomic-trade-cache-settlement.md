@@ -50,6 +50,26 @@
 
 이 보장은 정상적인 Result 오류에 대한 것이다. 프로세스 강제 종료·메모리 부족·호스트 손실에서 영속성을 제공하지 않는다.
 
+### 현재 코드로 연결해 읽기
+
+가변 대여를 받은 잔액 캐시는 먼저 체결 식별자와 입력을 검증한다. 아래는 2026-10-23 현재 [실제 소스](../../src/domains/cex/engine/balance_cache/settlement.rs#L14)의 연속 행 발췌다. 메서드 일부일 수 있으므로 독립 실행 예제로 사용하지 않고 앞뒤 검증과 함께 읽는다. 과거 사이클의 코드/측정 시점은 본문의 기록을 유지한다.
+
+```rust
+pub fn settle_trade(&mut self, trade: &MatchResult) -> Result<()> {
+    ensure!(
+        trade.buyer_id > 0 && trade.seller_id > 0,
+        "Invalid settlement user"
+    );
+    ensure!(
+        trade.buy_order_id > 0
+            && trade.sell_order_id > 0
+            && trade.buy_order_id != trade.sell_order_id,
+        "Invalid settlement order ids"
+    );
+```
+
+`&mut self`는 호출 중 독점적인 가변 접근을 뜻한다. `ensure!` 실패는 Result 오류로 반환된다. 실제 잔액 준비/검증/반영 순서는 메서드 전체를 읽어야 하며 이 입력 검사만으로 원자성을 보장하는 것은 아니다.
+
 ## 작성한 테스트
 
 [settlement_tests.rs](../../src/domains/cex/engine/balance_cache/settlement_tests.rs)는 실제 Executor를 호출한다. 실패 검사는 전체 잔액 Map·새 행 생성 여부·DB 명령 없음과 panic 없음까지 비교한다. DB·Kafka 서버를 사용하지 않는다.

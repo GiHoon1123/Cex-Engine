@@ -108,6 +108,38 @@ SIGKILL은 종료 훅을 실행하지 않는다. SQLite가 미커밋 쓰기를 �
 - [handle.rs](../../src/domains/cex/engine/runtime/handle.rs): 요청 비동기 작업만 oneshot 응답을 기다린다. TypeScript의 Promise 대기와 비슷하지만 송신 권한은 소유권으로 한 워커에 이동한다.
 - [order_service.rs](../../src/domains/cex/services/order_service.rs): 기존 DB 접수 여부와 무관하게 저널 확인을 기다린다. 큐 전달 실패 뒤 거짓 성공을 반환하지 않는다.
 
+### 현재 코드로 연결해 읽기
+
+저널 저장 워커는 한 트랜잭션 안에서 연속 순번과 본문·체크섬을 저장한다. 아래는 2026-10-23 현재 [실제 소스](../../src/domains/cex/engine/runtime/journal/store.rs#L258)의 연속 행 발췌다. 메서드 일부일 수 있으므로 독립 실행 예제로 사용하지 않고 앞뒤 검증과 함께 읽는다. 과거 사이클의 코드/측정 시점은 본문의 기록을 유지한다.
+
+```rust
+    let transaction = self.connection.transaction()?;
+    let mut next = *sequence;
+    for item in pending {
+        if let Some(command) = &item.command {
+            next = next.checked_add(1).context("Journal sequence exhausted")?;
+            let record = RecordRef {
+                sequence: next,
+                timestamp: Utc::now(),
+                command,
+                outcome: &item.outcome,
+            };
+            let payload = serde_json::to_string(&record)?;
+            transaction.execute(
+                "INSERT INTO records VALUES(?1,?2,?3)",
+                params![i64::try_from(next)?, payload, digest(&payload)],
+            )?;
+        }
+    }
+    // FULL 모드의 커밋이 반환되기 전에는 성공 응답도 진행 위치도 공개하지 않는다.
+    transaction.commit()?;
+    *sequence = next;
+    Ok(())
+}
+```
+
+`checked_add`는 순번 오버플로를 오류로 만든다. `RecordRef`는 원본 명령/결과를 빌려 직렬화하며, 아래의 커밋 성공 뒤에만 확정 진행을 알린다. 이 발췌는 코어가 직접 디스크를 기다린다는 뜻이 아니다.
+
 ## 작성한 테스트
 
 [journal_tests.rs](../../src/domains/cex/engine/runtime/engine/journal_tests.rs)의 16개:

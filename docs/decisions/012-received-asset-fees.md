@@ -48,6 +48,23 @@
 
 `BigInt`는 TypeScript의 `bigint`와 비슷하게 큰 정수로 중간 곱을 보존한다. 최소 단위 정수끼리 곱하고 나누므로 부동소수점 오차가 없다. `Result`와 `?`는 실패를 호출자에게 돌려주고, 후보 캐시에만 계산하므로 실패가 실제 오더북·실행 잔액을 부분 변경하지 않는다.
 
+### 현재 코드로 연결해 읽기
+
+수수료는 수취 자산의 최소 단위로 계산하는 실제 함수다. 아래는 2026-10-23 현재 [실제 소스](../../src/domains/cex/engine/amount.rs#L92)의 연속 행 발췌다. 메서드 일부일 수 있으므로 독립 실행 예제로 사용하지 않고 앞뒤 검증과 함께 읽는다. 과거 사이클의 코드/측정 시점은 본문의 기록을 유지한다.
+
+```rust
+pub(crate) fn fee(received: Decimal, rate: Decimal) -> Result<Decimal> {
+    ensure!(
+        rate < Decimal::ONE && rate.normalize().scale() <= 6,
+        "Invalid fee rate"
+    );
+    let value = BigInt::from(units(received)?) * BigInt::from(units(rate)?) / FACTOR;
+    decimal(i128::try_from(value)?)
+}
+```
+
+큰 정수 곱셈 뒤 정수 나눗셈을 수행하고 Decimal로 되돌린다. 중간 Decimal 곱셈의 반올림과 오버플로를 피하며, 자릿수 아래 수수료의 버림 방향은 원래 정책을 따른다.
+
 ## 작성한 테스트
 
 | 파일 | 함수 | 검증 |

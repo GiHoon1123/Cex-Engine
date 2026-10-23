@@ -72,6 +72,25 @@ flowchart TD
 
 `?`로 반환하는 금액 오류는 모두 확정 전에 끝난다. 확정 구간에는 금액 연산·DB·채널·await가 없다. 단일 워커의 독점 소유와 가변 대여가 외부의 중간 상태 관찰을 막는다. `std::mem::take`는 준비한 maker 목록의 소유권을 옮기며 전체 원본을 복제하지 않는다. commit 중 내부 expect는 같은 독점 대여 동안 계획한 maker가 그대로 있다는 불변조건에 의존한다.
 
+### 현재 코드로 연결해 읽기
+
+현재 주문 적용은 주문장과 실행기의 가변 참조를 단일 워커에서 받아 계획부터 만든다. 아래는 2026-10-23 현재 [실제 소스](../../src/domains/cex/engine/runtime/submission.rs#L41)의 연속 행 발췌다. 메서드 일부일 수 있으므로 독립 실행 예제로 사용하지 않고 앞뒤 검증과 함께 읽는다. 과거 사이클의 코드/측정 시점은 본문의 기록을 유지한다.
+
+```rust
+pub(crate) fn apply(
+    order: OrderEntry,
+    books: &mut HashMap<TradingPair, OrderBook>,
+    matcher: &Matcher,
+    executor: &mut Executor,
+) -> Result<AppliedSubmission> {
+    let pair = TradingPair::new(order.base_mint.clone(), order.quote_mint.clone());
+    let empty = OrderBook::new(pair.clone());
+    let book = books.get(&pair).unwrap_or(&empty);
+    let mut plan = matcher.plan_order(&order, book)?;
+```
+
+`&mut`로 거래 상태를 독점 대여한다. `plan_order(...)?`가 성공하기 전에 원본 상태를 임의로 갱신하지 않는다. 실제 원자적 반영 경계와 준비 잔액 검증은 뒤따르는 코드까지 확인한다.
+
 ## 작성·갱신한 테스트
 
 [settlement_pipeline_tests.rs](../../src/domains/cex/engine/runtime/engine/settlement_pipeline_tests.rs)에 다음 **12개**를 추가했다.

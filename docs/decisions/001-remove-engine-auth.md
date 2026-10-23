@@ -84,6 +84,23 @@ mod tests;
 
 `#[cfg(test)]`는 테스트를 빌드할 때만 해당 모듈을 포함한다. `#[tokio::test]`는 비동기 테스트에 필요한 Tokio 실행 환경을 제공한다. [테스트 코드](../../src/routes/tests.rs)는 실제 Axum 라우터에 Tower의 `oneshot`으로 요청한다. HTTP 포트를 열거나 요청 결과를 가짜로 대체하지 않는다.
 
+### 현재 코드로 연결해 읽기
+
+현재 AppState 생성자는 시작 코드에서 받은 엔진 핸들과 남은 도메인 서비스를 연결한다. 아래는 2026-10-23 현재 [실제 소스](../../src/shared/services/app_state.rs#L28)의 연속 행 발췌다. 메서드 일부일 수 있으므로 독립 실행 예제로 사용하지 않고 앞뒤 검증과 함께 읽는다. 과거 사이클의 코드/측정 시점은 본문의 기록을 유지한다.
+
+```rust
+pub fn new(db: Database, engine: EngineHandle) -> Result<Self> {
+    // 남아 있는 도메인 서비스만 초기화한다. `?`는 지갑 서비스 생성에 실패하면
+    // 그 오류를 호출자에게 전달하며, 불완전한 AppState 생성을 중단한다.
+    let wallet_state = WalletState::new(db.clone())?;
+    let swap_state = SwapState::new(db.clone());
+
+    // 서비스에도 같은 엔진 인스턴스 전달 (Wrapper 불필요)
+    let cex_state = CexState::new(db.clone(), engine.clone());
+```
+
+`?`는 서비스 생성 실패를 호출자에게 전달한다. `db.clone()`은 연결 핸들의 복제이며 사용자 인증 서비스의 재생성이 아니다. 엔진 실행 상태의 독점 소유는 별도 EngineState/EngineHandle 경계로 유지한다.
+
 ## 작성한 테스트
 
 회귀 테스트는 모두 [src/routes/tests.rs](../../src/routes/tests.rs)에 있다. SQLx의 `connect_lazy`로 DB 연결을 미루고, 기존 Bench 엔진으로 Kafka·저장 워커를 만들지 않는다. 테스트는 DB 쿼리를 수행하기 전의 라우팅과 입력 검증을 확인하므로 PostgreSQL·Kafka·Solana 서버 없이 실행할 수 있다.

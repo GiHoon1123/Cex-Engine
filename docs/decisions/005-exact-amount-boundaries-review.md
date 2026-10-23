@@ -42,6 +42,28 @@
 
 `collect::<Result<Vec<_>>>()`는 목록의 한 행이라도 잘못되면 목록 전체를 오류로 반환한다. 잘못된 행을 조용히 건너뛰어 정상 주문 목록처럼 제공하지 않는다.
 
+### 현재 코드로 연결해 읽기
+
+DB 숫자 텍스트를 정확한 Decimal로 읽는 현재 함수다. 아래는 2026-10-23 현재 [실제 소스](../../src/shared/database/exact_decimal.rs#L22)의 연속 행 발췌다. 메서드 일부일 수 있으므로 독립 실행 예제로 사용하지 않고 앞뒤 검증과 함께 읽는다. 과거 사이클의 코드/측정 시점은 본문의 기록을 유지한다.
+
+```rust
+fn parse(value: &str, column: &str) -> Result<Decimal, sqlx::Error> {
+    // NUMERIC(30,9)의 표시용 0은 값의 정밀도가 아니다. 소수 끝의 0만
+    // 제거한다. 정수 1000의 끝을 제거하면 1이 되므로 소수점이 있을 때만 처리한다.
+    let normalized = if value.contains('.') {
+        value.trim_end_matches('0').trim_end_matches('.')
+    } else {
+        value
+    };
+    Decimal::from_str_exact(normalized).map_err(|source| sqlx::Error::ColumnDecode {
+        index: column.into(),
+        source: Box::new(source),
+    })
+}
+```
+
+`Result`로 표현 범위를 벗어난 값을 오류로 전달한다. 임의 반올림이나 float 중간 변환으로 저장값을 바꾸지 않는 것이 목적이다. PostgreSQL 숫자와 Rust Decimal의 범위가 다르다는 본문 설명에 대응한다.
+
 ## 작성한 테스트
 
 [startup_tests.rs](../../src/domains/cex/engine/runtime/engine/startup_tests.rs):

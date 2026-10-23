@@ -67,6 +67,27 @@ Tokio의 기존 블로킹 작업 풀에서 읽기를 수행한다. 조회의 세
 
 `visit_events`의 콜백은 Kafka에서는 브로커 확인을 기다리고, 감사에서는 응답 본문을 수집한다. 금액 계산이나 매칭을 다시 하는 함수가 아니다. 검사 합은 저장 손상 검사용이며, 디비 관리자에 대한 전자서명·외부 증적을 대신하지 않는다.
 
+### 현재 코드로 연결해 읽기
+
+감사 조회는 별도 읽기 전용 연결로 저널을 연다. 아래는 2026-10-23 현재 [실제 소스](../../src/domains/cex/engine/runtime/audit.rs#L57)의 연속 행 발췌다. 메서드 일부일 수 있으므로 독립 실행 예제로 사용하지 않고 앞뒤 검증과 함께 읽는다. 과거 사이클의 코드/측정 시점은 본문의 기록을 유지한다.
+
+```rust
+fn read(&self, query: PageQuery) -> Result<AuditPage> {
+    // 읽기 전용으로 열어 파일 생성·스키마 변경·저널 모드 변경을 모두 막는다.
+    let connection = Connection::open_with_flags(&self.path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    connection.busy_timeout(std::time::Duration::from_millis(500))?;
+    connection.execute_batch("PRAGMA query_only=ON; BEGIN;")?;
+    let version: u32 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    ensure!(version == 4, "지원하지 않는 감사 저널 버전");
+    let (payload, checksum) = connection.query_row(
+        "SELECT payload,checksum FROM genesis WHERE id=1",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+```
+
+`SQLITE_OPEN_READ_ONLY`와 `query_only`는 조회가 파일 생성/기록을 하지 못하게 한다. 원문 체크섬/저널 버전·조회 범위를 후속 검증하며 코어 명령 큐나 실행 상태를 잠그지 않는다.
+
 ## 작성한 테스트
 
 [감사 조회 테스트](../../src/domains/cex/engine/runtime/audit.rs)의 세 함수는 외부 DB와 체결 코어 없이 실행한다.

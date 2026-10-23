@@ -123,6 +123,25 @@ HTTP 기본 바인딩은 `127.0.0.1:3002`다. 격리 검증·컨테이너 연결
 - `Option<Decimal>`의 null은 시장가 매수에서 수량을 지정하지 않았다는 의미다. 이를 0으로 바꿔 원본을 비교하지 않는다. Decimal은 소수 scale이 달라도 수치가 같으면 동일하게 비교한다.
 - `tokio::spawn` 제거로 요청과 제출 시도의 제어 흐름을 연결했다. TypeScript에서 작업을 기다리지 않는 Promise를 시작하고 성공을 먼저 반환하던 경로를 `await`로 연결한 것과 비슷하지만, 원격·메모리 작업까지 원자화되는 것은 아니다.
 
+### 현재 코드로 연결해 읽기
+
+초기 영속 접수 코드의 트랜잭션 설정을 현재 소스에서 발췌했다. 아래는 2026-10-23 현재 [실제 소스](../../src/domains/cex/services/order_receipt.rs#L108)의 연속 행 발췌다. 메서드 일부일 수 있으므로 독립 실행 예제로 사용하지 않고 앞뒤 검증과 함께 읽는다. 과거 사이클의 코드/측정 시점은 본문의 기록을 유지한다.
+
+```rust
+let mut transaction = pool.begin().await.context("Begin engine acceptance")?;
+// 충돌 뒤 새 SELECT에서 승자의 커밋을 읽는 계약을 세션 기본값에 맡기지 않는다.
+sqlx::query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+    .execute(&mut *transaction)
+    .await?;
+// 비동기 커밋 설정에서는 응답 뒤 DB 프로세스 장애로 기록을 잃을 수 있다.
+// 이 접수 트랜잭션은 WAL 로컬 디스크 반영을 기다린다. 복제·백업 보장은 별도다.
+sqlx::query("SET LOCAL synchronous_commit = on")
+    .execute(&mut *transaction)
+    .await?;
+```
+
+`synchronous_commit`은 이 PostgreSQL 접수 커밋의 조건이다. 현재 엔진 상태·확정 결과 복구의 권위는 후속 자체 저널 기록을 따른다. 이 발췌를 현재 전체 복구 설계나 외부 복제 보장으로 확대하지 않는다.
+
 ## 작성한 테스트
 
 파일: [order_receipt/tests.rs](../../src/domains/cex/services/order_receipt/tests.rs). SQLx가 테스트마다 새 PostgreSQL DB를 만든다. 벤치 엔진은 워커 없이 큐 전달 수를 관찰하며 실제 매칭 결과를 주장하지 않는다.

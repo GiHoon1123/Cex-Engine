@@ -44,6 +44,32 @@
 
 `then(|| ...)`은 시장가일 때만 결과를 구성한다. 결과는 기존 명령의 정산 합계에서 만든다. `&MarketCompletion`은 출력 워커가 이미 확정한 값을 빌려 직렬화한다는 뜻이며 실행 캐시 참조를 다른 스레드와 공유하지 않는다. `#[serde(flatten)]`은 이 결과 필드를 Kafka 이벤트의 최상위 필드로 직렬화한다.
 
+### 현재 코드로 연결해 읽기
+
+체결 목록 뒤에 시장가 종료 이벤트를 같은 확정 명령의 순서로 만든다. 아래는 2026-10-23 현재 [실제 소스](../../src/domains/cex/engine/runtime/output.rs#L143)의 연속 행 발췌다. 메서드 일부일 수 있으므로 독립 실행 예제로 사용하지 않고 앞뒤 검증과 함께 읽는다. 과거 사이클의 코드/측정 시점은 본문의 기록을 유지한다.
+
+```rust
+if let Some(completion) = completion {
+    // 체결 뒤에 같은 파티션으로 전송한다. 마지막 이벤트 전 실패하면
+    // 전달 커서를 남겨 재시작에서 체결·종료 모두 같은 식별자로 재전달한다.
+    let event = MarketOrderCompletedEvent {
+        event_id: format!(
+            "{}:{}:{}",
+            position.engine_id,
+            position.sequence,
+            trades.len()
+        ),
+        engine_id: position.engine_id.into(),
+        event_type: "market_order_completed",
+        timestamp: position.timestamp,
+        result: completion,
+    };
+    send(trades.len(), encode(&event, trades.len())?)?;
+}
+```
+
+`if let Some`은 종료 결과가 있을 때만 처리한다. 이벤트 ID의 순번과 체결 개수는 재전달 시에도 같아야 한다. 실제 미사용 예약 반환은 플랫폼이 이 종료 근거를 검사해 수행한다.
+
 ## 작성한 테스트
 
 | 파일 | 함수 | 시나리오·기대 결과 |

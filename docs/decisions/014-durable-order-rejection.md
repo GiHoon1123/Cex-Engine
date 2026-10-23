@@ -43,6 +43,38 @@ HTTP 4xx·5xx·시간 초과를 거절로 간주하면 이미 처리한 주문�
 
 `Option<Decimal>`은 값이 없음을 명시한다. 시장가 매수의 미정 수량을 0으로 보내 원본과 혼동하지 않는다. `map_err`는 브로커 오류를 출력 실패로 변환하며, 여기서 실패를 성공으로 숨기지 않는다.
 
+### 현재 코드로 연결해 읽기
+
+거절도 원본 주문과 연결된 영속 결과 이벤트로 공개한다. 아래는 2026-10-23 현재 [실제 소스](../../src/domains/cex/engine/runtime/output.rs#L95)의 연속 행 발췌다. 메서드 일부일 수 있으므로 독립 실행 예제로 사용하지 않고 앞뒤 검증과 함께 읽는다. 과거 사이클의 코드/측정 시점은 본문의 기록을 유지한다.
+
+```rust
+OutputBatch::Rejected { order, .. } => {
+    // 거절도 같은 명령의 영속 결과다. 오류 문자열이나 HTTP 상태를 반환 근거로
+    // 사용하지 않고 원본과 연결된 고유 결과를 체결·취소와 같은 순서로 공개한다.
+    let budget_buy = order.order_side == "market" && order.order_type == "buy";
+    let event = OrderRejectedEvent {
+        event_id: format!("{}:{}:0", position.engine_id, position.sequence),
+        engine_id: position.engine_id.into(),
+        event_type: "order_rejected",
+        order_id: order.id,
+        user_id: order.user_id,
+        order_type: &order.order_type,
+        order_side: &order.order_side,
+        base_mint: &order.base_mint,
+        quote_mint: &order.quote_mint,
+        price: order.price,
+        amount: if budget_buy { None } else { Some(order.amount) },
+        quote_amount: order.quote_amount,
+        fee_rate: order.fee_rate,
+        reason_code: "ENGINE_EXECUTION_REJECTED",
+        timestamp: position.timestamp,
+    };
+    send(0, encode(&event, 0)?)?;
+}
+```
+
+`match`는 확정 결과 종류를 분기한다. `{ order, .. }`는 필요한 주문 필드만 꺼내고 나머지를 생략한다. HTTP 오류를 미실행 증거로 쓰지 않고 안정적인 이벤트 식별자로 플랫폼에 전달한다.
+
 ## 작성한 테스트
 
 [실제 워커·저널 테스트](../../src/domains/cex/engine/runtime/engine/journal_tests.rs)에 다음을 추가했다.

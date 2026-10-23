@@ -52,6 +52,41 @@ Kafka의 브로커 확인은 플랫폼 정산 완료가 아니다. 금융·시�
 - 출력용 `HashMap`은 출력 워커가 독점 소유한다. TypeScript의 별도 워커에 공개용 상태를 두는 것과 비슷하지만 Rust에서는 코어 상태 참조를 전달하지 않아 컴파일 단계의 접근 경계도 유지한다.
 - `FnMut` 콜백은 외부 전달을 검증용 함수로 바꿀 수 있게 한다. 제품에서는 같은 전용 워커의 Kafka 전달을 호출한다. 코어에 테스트 분기나 디비 접근을 넣지 않는다.
 
+### 현재 코드로 연결해 읽기
+
+공개 호가는 코어 상태를 직접 빌리는 대신 확정 기록의 투영으로 갱신한다. 아래는 2026-10-23 현재 [실제 소스](../../src/domains/cex/engine/runtime/market.rs#L160)의 연속 행 발췌다. 메서드 일부일 수 있으므로 독립 실행 예제로 사용하지 않고 앞뒤 검증과 함께 읽는다. 과거 사이클의 코드/측정 시점은 본문의 기록을 유지한다.
+
+```rust
+let event = MarketSnapshot {
+    event_type: "market_snapshot",
+    event_id: format!("{engine_id}:{}:market", record.sequence),
+    engine_id: engine_id.into(),
+    sequence: record.sequence.to_string(),
+    previous_sequence: book.sequence.to_string(),
+    base_mint: pair.base_mint.clone(),
+    quote_mint: pair.quote_mint.clone(),
+    timestamp: record.timestamp,
+    // 상위 20개 전체 스냅샷을 택해 누락 뒤에도 최신 호가로 바로 재동기화한다.
+    // 델타보다 전송량이 크지만 코어의 복사 비용과 클라이언트의 델타 병합 상태가 없다.
+    bids: book
+        .bids
+        .iter()
+        .rev()
+        .take(20)
+        .map(|(p, q)| [p.to_string(), quantity_text(q)])
+        .collect(),
+    asks: book
+        .asks
+        .iter()
+        .take(20)
+        .map(|(p, q)| [p.to_string(), quantity_text(q)])
+        .collect(),
+    trades,
+};
+```
+
+`.iter().rev().take(20)`은 최선 가격부터 최대 20개 가격 수준을 뽑는다. 이 메서드의 `&mut self`는 출력 투영의 로컬 상태를 갱신한다. 코어의 오더북과 별도 소유 상태이며, 순번과 중복/거절 처리 규칙을 따라 공개용 스냅샷을 만든다. 시장 데이터도 저널 확정 범위에서 나온다.
+
 ## 작성·수정한 테스트
 
 [시장 집계 테스트](../../src/domains/cex/engine/runtime/market.rs), 5개:

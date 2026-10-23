@@ -1,0 +1,127 @@
+{
+  "checked_date": "2026-10-23",
+  "scope": "기존 결정 문서의 실제 코드 발췌와 설명 보강",
+  "documents": 16,
+  "source_and_excerpt_match": true,
+  "source_link_positions_verified": true,
+  "normalization": "코드 내용은 그대로 유지하고 공통 들여쓰기와 행 끝 공백만 정리함",
+  "product_code_changed": false,
+  "new_product_tests": 0,
+  "product_tests_rerun": false,
+  "verification": "현재 소스 연속 행과 정규화한 발췌 전체 문자열·출처 위치 대조 및 git diff --check",
+  "baseline_commit": "08ae162696b98c2b0222542bc6598a878ca13736",
+  "entries": [
+    {
+      "document": "docs/decisions/001-remove-engine-auth.md",
+      "source": "src/shared/services/app_state.rs",
+      "first_line": 28,
+      "lines": 8,
+      "excerpt_sha256": "26deb500fda1f3019adc038f49c067765fb7c5534a18f9c2a25331567cc20e3a"
+    },
+    {
+      "document": "docs/decisions/002-block-incomplete-startup-state.md",
+      "source": "src/domains/cex/engine/runtime/startup.rs",
+      "first_line": 16,
+      "lines": 10,
+      "excerpt_sha256": "48de5c4635c831ab90f48fddebb4b453169c8b04253e7ea678924bdf9bcea65c"
+    },
+    {
+      "document": "docs/decisions/003-durable-order-acceptance.md",
+      "source": "src/domains/cex/services/order_receipt.rs",
+      "first_line": 108,
+      "lines": 10,
+      "excerpt_sha256": "80932ab6928361f8ad56d2fac11ea70d2d1364b9da5cda5f3d12144d8f3c512f"
+    },
+    {
+      "document": "docs/decisions/004-atomic-trade-cache-settlement.md",
+      "source": "src/domains/cex/engine/balance_cache/settlement.rs",
+      "first_line": 14,
+      "lines": 11,
+      "excerpt_sha256": "2a773cbbad75526bd98679379cd479c725a6b3e710382a0a4c20ee2f0c085949"
+    },
+    {
+      "document": "docs/decisions/005-exact-amount-boundaries-review.md",
+      "source": "src/shared/database/exact_decimal.rs",
+      "first_line": 22,
+      "lines": 13,
+      "excerpt_sha256": "527196d1308a3135817d540373891f833045cbc45e62c0453be66725e835e8af"
+    },
+    {
+      "document": "docs/decisions/006-atomic-order-memory-commit.md",
+      "source": "src/domains/cex/engine/runtime/submission.rs",
+      "first_line": 41,
+      "lines": 10,
+      "excerpt_sha256": "5fb4d8add54d3caf76ca4560c8569e503223b77daad0364730add6ddae4aed99"
+    },
+    {
+      "document": "docs/decisions/007-single-owner-engine-state.md",
+      "source": "src/domains/cex/engine/runtime/handle.rs",
+      "first_line": 20,
+      "lines": 5,
+      "excerpt_sha256": "72c3151047bb0dcb4f37727e594f1c67cb0f4a4770a75e29a546fc4f28c3c4a2"
+    },
+    {
+      "document": "docs/decisions/008-ordered-output-worker.md",
+      "source": "src/domains/cex/engine/runtime/output.rs",
+      "first_line": 239,
+      "lines": 8,
+      "excerpt_sha256": "126066711bea951106506193cac4bbfd954366750689e8991659a12e8a8eb765"
+    },
+    {
+      "document": "docs/decisions/009-durable-journal-recovery.md",
+      "source": "src/domains/cex/engine/runtime/journal/store.rs",
+      "first_line": 258,
+      "lines": 23,
+      "excerpt_sha256": "d2f5e62e8469fe2a21475b99e2b7d2dcc07a2ee36fb5203245a1b70641f33e85"
+    },
+    {
+      "document": "docs/decisions/010-remove-engine-bot.md",
+      "source": "src/domains/mod.rs",
+      "first_line": 2,
+      "lines": 3,
+      "excerpt_sha256": "be9f63f8df9bb555720d35a75a00dda00cfdce015680b5ad19c04ff87bc58089"
+    },
+    {
+      "document": "docs/decisions/011-durable-market-output.md",
+      "source": "src/domains/cex/engine/runtime/market.rs",
+      "first_line": 160,
+      "lines": 26,
+      "excerpt_sha256": "5acfa48d5f9537dbcb45275da374dc758a0a43903cdadfd7ee6bccf590233831"
+    },
+    {
+      "document": "docs/decisions/012-received-asset-fees.md",
+      "source": "src/domains/cex/engine/amount.rs",
+      "first_line": 92,
+      "lines": 8,
+      "excerpt_sha256": "cc1839b796471dc543087bcdc97d306f1ac4fe9a5b0dfb6ac71073b36ffde0e9"
+    },
+    {
+      "document": "docs/decisions/013-market-ioc-completion.md",
+      "source": "src/domains/cex/engine/runtime/output.rs",
+      "first_line": 143,
+      "lines": 17,
+      "excerpt_sha256": "31ce84b74570c9c5d8fc156fd653e4e70aac65ceb5c370370c13ce7933922148"
+    },
+    {
+      "document": "docs/decisions/014-durable-order-rejection.md",
+      "source": "src/domains/cex/engine/runtime/output.rs",
+      "first_line": 95,
+      "lines": 23,
+      "excerpt_sha256": "e20bfcc5d1939e30ee3cfd839b9082a8106c1d2262e0dd23723ecc6e65f850f7"
+    },
+    {
+      "document": "docs/decisions/015-read-only-journal-audit.md",
+      "source": "src/domains/cex/engine/runtime/audit.rs",
+      "first_line": 57,
+      "lines": 12,
+      "excerpt_sha256": "05af4d753cf9a98fae6e82cc2c870c411b7bf8ecb489d56779a3cb0caf814025"
+    },
+    {
+      "document": "docs/decisions/016-platform-service-boundary.md",
+      "source": "src/routes/mod.rs",
+      "first_line": 11,
+      "lines": 15,
+      "excerpt_sha256": "2c7932a66791e83b92953ab7f6bfad32c878bfc760aa1a84d6d11bb93b20caac"
+    }
+  ]
+}

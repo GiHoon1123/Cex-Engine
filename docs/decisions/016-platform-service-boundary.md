@@ -29,6 +29,30 @@
 
 `route_layer`는 등록된 거래 명령의 HTTP 경계에만 적용한다. `move` 클로저는 검증에 필요한 해시 값을 소유해 사용하고, 코어의 상태 참조나 공유 락을 캡처하지 않는다. `Next.run`은 인증 성공 뒤 기존 핸들러로 요청을 전달한다. 이는 TypeScript의 내부 API 인증 미들웨어와 유사하며 매칭 알고리즘의 일부가 아니다.
 
+### 현재 코드로 연결해 읽기
+
+플랫폼 서비스 신원은 엔진 HTTP 경계에서 검사한다. 아래는 2026-10-23 현재 [실제 소스](../../src/routes/mod.rs#L11)의 연속 행 발췌다. 메서드 일부일 수 있으므로 독립 실행 예제로 사용하지 않고 앞뒤 검증과 함께 읽는다. 과거 사이클의 코드/측정 시점은 본문의 기록을 유지한다.
+
+```rust
+pub fn create_router(service_token: &str) -> Router<AppState> {
+    assert!(service_token.len() >= 32 && service_token.len() <= 1024, "서비스 키는 32~1024바이트여야 합니다");
+    let expected = solana_sdk::hash::hash(service_token.as_bytes());
+    let commands = create_cex_router().route_layer(middleware::from_fn(move |request: Request, next: Next| async move {
+        let provided = request.headers().get("x-engine-service-token").and_then(|value| value.to_str().ok());
+        if provided.is_none_or(|key| key.len() > 1024 || solana_sdk::hash::hash(key.as_bytes()) != expected) {
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+        Ok(next.run(request).await)
+    }));
+    Router::new()
+        .route("/api/health", get(health_check))
+        .route("/internal/audit/results", get(crate::domains::cex::engine::runtime::audit::page))
+        .nest("/api/cex", commands)
+}
+```
+
+미들웨어의 async closure가 헤더를 검사한 뒤 `next.run`을 호출한다. 이 경계는 플랫폼 내부 호출자의 인증이며 고객 로그인/운영 역할은 플랫폼이 담당한다. 체결 코어에 인증 상태를 공유하지 않는다.
+
 ## 작성·수정한 테스트
 
 | 파일·함수 | 검증과 기대 결과 |

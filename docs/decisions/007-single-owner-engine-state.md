@@ -54,6 +54,20 @@ flowchart LR
 - 종료 표식의 AtomicBool은 거래 상태를 보호하는 락이 아니다. 기존 핸들로 정지 후 명령을 보내는 것을 거부하는 생명주기 표식이다.
 - `try_send` 성공은 큐 진입이다. 매칭 성공이나 디스크 영속 확정을 의미하지 않는다. 조회·취소 등의 응답 timeout도 이미 큐에 들어간 명령을 자동으로 취소하지 않는다.
 
+### 현재 코드로 연결해 읽기
+
+HTTP 쪽에 제공하는 핸들은 송신 채널과 종료 신호만 갖는다. 아래는 2026-10-23 현재 [실제 소스](../../src/domains/cex/engine/runtime/handle.rs#L20)의 연속 행 발췌다. 메서드 일부일 수 있으므로 독립 실행 예제로 사용하지 않고 앞뒤 검증과 함께 읽는다. 과거 사이클의 코드/측정 시점은 본문의 기록을 유지한다.
+
+```rust
+pub struct EngineHandle {
+    pub(super) order_tx: Sender<OrderCommand>,
+    pub(super) balance_tx: Sender<BalanceCommand>,
+    pub(super) closed: Arc<AtomicBool>,
+}
+```
+
+채널 Sender의 clone은 명령 제출 권한을 복제한다. `Arc<AtomicBool>`은 수명/종료 신호이며 오더북·잔액을 공유 락으로 감싼 상태가 아니다. 실제 거래 상태는 한 워커가 소유한다.
+
 ## 작성·수정한 테스트
 
 ### 신규 테스트

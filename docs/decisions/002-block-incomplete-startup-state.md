@@ -91,6 +91,24 @@ PostgreSQL WAL은 데이터 변경을 설명하는 로그를 영속화한 뒤 �
 - `&mut self`는 같은 객체의 동시 가변 접근을 막지만 순차적인 중복 start까지 막지는 않는다. 실행 상태·채널 상태를 별도로 검사한다.
 - `#[cfg(test)]`는 테스트 모듈을 테스트 빌드에만 포함한다. 표준 엔진의 실제 start·작업 스레드를 시험하며 Bench 모드로 DB 검증을 우회하지 않는다.
 
+### 현재 코드로 연결해 읽기
+
+초기 반입용 DB 검사는 읽기 전용의 일관된 스냅샷에서 시작한다. 아래는 2026-10-23 현재 [실제 소스](../../src/domains/cex/engine/runtime/startup.rs#L16)의 연속 행 발췌다. 메서드 일부일 수 있으므로 독립 실행 예제로 사용하지 않고 앞뒤 검증과 함께 읽는다. 과거 사이클의 코드/측정 시점은 본문의 기록을 유지한다.
+
+```rust
+pub(super) async fn load_balances(pool: &PgPool) -> Result<BalanceCache> {
+    let mut transaction = pool
+        .begin()
+        .await
+        .context("Failed to begin startup inspection")?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&mut *transaction)
+        .await
+        .context("Failed to configure startup inspection snapshot")?;
+```
+
+`.await`는 DB 응답을 기다리는 초기화 경로이고 `?`는 실패를 전파한다. 현재 재시작 복구는 자체 저널을 기준으로 하며, 이 코드를 플랫폼 DB로 재시작을 우회하는 경로로 해석하면 안 된다.
+
 ## 작성한 테스트
 
 [startup_tests.rs](../../src/domains/cex/engine/runtime/engine/startup_tests.rs)에 신규 테스트 14개를 작성했다. 각 함수는 SQLx가 만든 전용 PostgreSQL DB를 사용한다.
