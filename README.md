@@ -25,3 +25,21 @@
 ## 원장·독립 대사
 
 [코어와 분리한 읽기 전용 저널 감사 조회](docs/decisions/015-read-only-journal-audit.md)에서 현재 범위와 실행 조건을 확인한다. 최초 반입·운영 접근·저장 계약은 문서의 조건을 충족해야 한다.
+
+## 실제 구현과 함께 읽기 · 2026-10-23
+
+이 문서의 관련 동작을 확인할 현재 코드다. 메서드·설정의 일부이며 독립 실행 예제가 아니다. 계획이나 과거 검토 전체가 구현·검증됐다는 뜻은 아니다.
+
+출처: [handle.rs](src/domains/cex/engine/runtime/handle.rs#L20) · [전체 구현 설명·트레이드오프·작성한 테스트](docs/decisions/007-single-owner-engine-state.md)
+
+```rust
+pub struct EngineHandle {
+    pub(super) order_tx: Sender<OrderCommand>,
+    pub(super) balance_tx: Sender<BalanceCommand>,
+    pub(super) closed: Arc<AtomicBool>,
+}
+```
+
+채널 Sender의 clone은 명령 제출 권한을 복제한다. `Arc<AtomicBool>`은 수명/종료 신호이며 오더북·잔액을 공유 락으로 감싼 상태가 아니다. 실제 거래 상태는 한 워커가 소유한다.
+
+이번 보강은 문서 변경이다. 신규 제품 테스트는 0개이며 제품 테스트는 재실행하지 않았다. 소스와 발췌의 일치를 별도로 검사했다. 과거 실행 결과와 현재 소스의 동작 범위는 연결한 구현 기록에서 구분한다.

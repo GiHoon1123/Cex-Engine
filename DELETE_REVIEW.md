@@ -1,5 +1,7 @@
 # Rust 엔진 코드 삭제 검토 문서
 
+> 과거 삭제 후보를 조사한 기록이다. 아래 “현재” 표기와 파일 목록은 작성 당시 기준이며 지금의 삭제 지시가 아니다. 엔진 봇은 이미 제거됐고, 복구는 자체 저널을 사용한다. 현재 책임과 실제 경로는 [서비스 경계](docs/decisions/016-platform-service-boundary.md)와 이 글 마지막 코드에서 확인한다.
+
 ## 📋 현재 Java와 연동되는 기능 (유지 필요)
 
 ### 1. HTTP API 엔드포인트
@@ -516,3 +518,31 @@ Java에서 조회 API 구현이 완료되고 테스트가 완료되면, Rust에�
 3. 주문 생성/취소 동작 확인
 4. 잔고 동기화 동작 확인
 5. Kafka 이벤트 발행 확인
+
+## 실제 구현과 함께 읽기 · 2026-10-23
+
+이 문서의 관련 동작을 확인할 현재 코드다. 메서드·설정의 일부이며 독립 실행 예제가 아니다. 계획이나 과거 검토 전체가 구현·검증됐다는 뜻은 아니다.
+
+출처: [mod.rs](src/routes/mod.rs#L11) · [전체 구현 설명·트레이드오프·작성한 테스트](docs/decisions/016-platform-service-boundary.md)
+
+```rust
+pub fn create_router(service_token: &str) -> Router<AppState> {
+    assert!(service_token.len() >= 32 && service_token.len() <= 1024, "서비스 키는 32~1024바이트여야 합니다");
+    let expected = solana_sdk::hash::hash(service_token.as_bytes());
+    let commands = create_cex_router().route_layer(middleware::from_fn(move |request: Request, next: Next| async move {
+        let provided = request.headers().get("x-engine-service-token").and_then(|value| value.to_str().ok());
+        if provided.is_none_or(|key| key.len() > 1024 || solana_sdk::hash::hash(key.as_bytes()) != expected) {
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+        Ok(next.run(request).await)
+    }));
+    Router::new()
+        .route("/api/health", get(health_check))
+        .route("/internal/audit/results", get(crate::domains::cex::engine::runtime::audit::page))
+        .nest("/api/cex", commands)
+}
+```
+
+미들웨어의 async closure가 헤더를 검사한 뒤 `next.run`을 호출한다. 이 경계는 플랫폼 내부 호출자의 인증이며 고객 로그인/운영 역할은 플랫폼이 담당한다. 체결 코어에 인증 상태를 공유하지 않는다.
+
+이번 보강은 문서 변경이다. 신규 제품 테스트는 0개이며 제품 테스트는 재실행하지 않았다. 소스와 발췌의 일치를 별도로 검사했다. 과거 실행 결과와 현재 소스의 동작 범위는 연결한 구현 기록에서 구분한다.
