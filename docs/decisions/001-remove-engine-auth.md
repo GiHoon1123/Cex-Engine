@@ -141,7 +141,7 @@ cargo build --locked
 | 엔진 `POST /api/auth/signin` | 404 |
 | 엔진 `GET /api/wallets/my` | 404 |
 | 엔진 `POST /api/cex/orders`에 빈 JSON | 422 |
-| 엔진 `POST /api/cex/balances/sync`에 빈 JSON | 422 |
+| 당시 엔진 `POST /api/cex/balances/sync`에 빈 JSON | 당시422. 076에서 경로 삭제 후404 |
 | 엔진 `DELETE /api/cex/orders/1`에 user_id 생략 | 400 |
 | Java `POST /api/auth/signin`에 존재하지 않는 계정 | 401 |
 | 프론트엔드 `GET /` | 200 |
