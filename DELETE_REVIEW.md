@@ -1,5 +1,7 @@
 # Rust 엔진 코드 삭제 검토 문서
 
+> 과거 삭제 검토 목록이다. “Java에서 지갑 처리”는 이전 가정이며 현재 플랫폼에는 실제 수탁·입출금이 구현되어 있지 않다. 2026-10-25 비활성 지갑·스왑·클라이언트 제거의 실제 결과와 남은 범위는 [엔진017](docs/decisions/017-remove-retired-chain-integrations.md)을 따른다. 아래 과거 계획 전체를 현행 구현으로 해석하지 않는다.
+
 > 과거 삭제 후보를 조사한 기록이다. 아래 “현재” 표기와 파일 목록은 작성 당시 기준이며 지금의 삭제 지시가 아니다. 엔진 봇은 이미 제거됐고, 복구는 자체 저널을 사용한다. 현재 책임과 실제 경로는 [서비스 경계](docs/decisions/016-platform-service-boundary.md)와 이 글 마지막 코드에서 확인한다.
 
 ## 📋 현재 Java와 연동되는 기능 (유지 필요)
@@ -528,10 +530,10 @@ Java에서 조회 API 구현이 완료되고 테스트가 완료되면, Rust에�
 ```rust
 pub fn create_router(service_token: &str) -> Router<AppState> {
     assert!(service_token.len() >= 32 && service_token.len() <= 1024, "서비스 키는 32~1024바이트여야 합니다");
-    let expected = solana_sdk::hash::hash(service_token.as_bytes());
+    let expected = crate::shared::service_identity::ServiceToken::parse(service_token).expect("유효한 플랫폼 명령 키가 필요합니다");
     let commands = create_cex_router().route_layer(middleware::from_fn(move |request: Request, next: Next| async move {
         let provided = request.headers().get("x-engine-service-token").and_then(|value| value.to_str().ok());
-        if provided.is_none_or(|key| key.len() > 1024 || solana_sdk::hash::hash(key.as_bytes()) != expected) {
+        if provided.is_none_or(|key| !expected.matches(key)) {
             return Err(StatusCode::UNAUTHORIZED);
         }
         Ok(next.run(request).await)
@@ -541,6 +543,11 @@ pub fn create_router(service_token: &str) -> Router<AppState> {
         .route("/internal/audit/results", get(crate::domains::cex::engine::runtime::audit::page))
         .nest("/api/cex", commands)
 }
+
+// 같은 모듈의 별도 파일에서 실제 라우터를 대상으로 HTTP 계약을 검증한다.
+// `cfg(test)` 모듈은 테스트 빌드에만 포함되며 서버 바이너리에 들어가지 않는다.
+#[cfg(test)]
+mod tests;
 ```
 
 미들웨어의 async closure가 헤더를 검사한 뒤 `next.run`을 호출한다. 이 경계는 플랫폼 내부 호출자의 인증이며 고객 로그인/운영 역할은 플랫폼이 담당한다. 체결 코어에 인증 상태를 공유하지 않는다.

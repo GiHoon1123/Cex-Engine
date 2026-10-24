@@ -16,7 +16,7 @@
 
 ## 구현과 관련 코드
 
-- [라우터](../../src/routes/mod.rs)의 `create_router(service_token)`은 거래 명령 라우트에만 미들웨어를 붙인다. `x-engine-service-token`을 확인하며 사용자 JWT와 감사 키는 대체 수단이 아니다. 이미 설치한 Solana SDK의 SHA-256 기능을 사용해 원본 키의 접두사를 직접 비교하지 않는다. 해시 비교만으로 모든 부채널 방어를 검증했다고 주장하지 않는다.
+- [라우터](../../src/routes/mod.rs)의 `create_router(service_token)`은 거래 명령 라우트에만 미들웨어를 붙인다. `x-engine-service-token`을 확인하며 사용자 JWT와 감사 키는 대체 수단이 아니다. 현재는 `sha2`로 고정 32바이트 요약을 만들고 `constant_time_eq`로 비교한다. SDK 제거와 검증 범위는 [017번 기록](017-remove-retired-chain-integrations.md)을 따른다. 기능 테스트만으로 모든 부채널 방어를 검증했다고 주장하지 않는다.
 - [시작 코드](../../src/main.rs)는 `ENGINE_SERVICE_TOKEN`의 존재와 32~1024바이트 길이를 워커 시작 전에 검사한다. 키 누락 시 시작하지 않으며 이전의 무인증 경로로 우회하지 않는다.
 - 헬스체크는 기존 공개 상태를 유지하고, `/internal/audit/results`는 별도의 `ENGINE_AUDIT_TOKEN`을 사용한다. 감사 키에는 거래 명령 권한을 주지 않는다.
 - 플랫폼의 [EngineHttpClient](../../../Cex-Platform-Service/src/main/java/dustin/cex/shared/http/EngineHttpClient.java)가 주문·취소·잔액 요청에 별도 키를 넣는다. `user_id`의 소유자·고객 정책 검증은 플랫폼 책임이다.
@@ -36,10 +36,10 @@
 ```rust
 pub fn create_router(service_token: &str) -> Router<AppState> {
     assert!(service_token.len() >= 32 && service_token.len() <= 1024, "서비스 키는 32~1024바이트여야 합니다");
-    let expected = solana_sdk::hash::hash(service_token.as_bytes());
+    let expected = crate::shared::service_identity::ServiceToken::parse(service_token).expect("유효한 플랫폼 명령 키가 필요합니다");
     let commands = create_cex_router().route_layer(middleware::from_fn(move |request: Request, next: Next| async move {
         let provided = request.headers().get("x-engine-service-token").and_then(|value| value.to_str().ok());
-        if provided.is_none_or(|key| key.len() > 1024 || solana_sdk::hash::hash(key.as_bytes()) != expected) {
+        if provided.is_none_or(|key| !expected.matches(key)) {
             return Err(StatusCode::UNAUTHORIZED);
         }
         Ok(next.run(request).await)
@@ -49,6 +49,11 @@ pub fn create_router(service_token: &str) -> Router<AppState> {
         .route("/internal/audit/results", get(crate::domains::cex::engine::runtime::audit::page))
         .nest("/api/cex", commands)
 }
+
+// 같은 모듈의 별도 파일에서 실제 라우터를 대상으로 HTTP 계약을 검증한다.
+// `cfg(test)` 모듈은 테스트 빌드에만 포함되며 서버 바이너리에 들어가지 않는다.
+#[cfg(test)]
+mod tests;
 ```
 
 미들웨어의 async closure가 헤더를 검사한 뒤 `next.run`을 호출한다. 이 경계는 플랫폼 내부 호출자의 인증이며 고객 로그인/운영 역할은 플랫폼이 담당한다. 체결 코어에 인증 상태를 공유하지 않는다.

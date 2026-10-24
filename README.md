@@ -14,6 +14,8 @@
 - 이후 복구는 자체 저널을 기준으로 하며, 기록 손상 시 플랫폼 DB로 우회하지 않는다.
 - 디스크 손실에 대한 외부 복제·백업은 미구현이며 문서에만 필요 조건을 명시한다.
 
+현재 엔진은 체인 지갑/스왑을 초기화하지 않는다. [비활성 통합 제거 기록](docs/decisions/017-remove-retired-chain-integrations.md)을 참고한다. PostgreSQL의 주문 원본·예약 확인과 자체 저널 복구는 서로 다른 책임으로 유지한다.
+
 ## 자체 시장 데이터
 
 공개 호가·체결은 WAL 확정 후 `market-events`로 발행한다. 브라우저는 플랫폼에 연결한다. [시장 출력 계약과 검증](docs/decisions/011-durable-market-output.md), [엔진 봇 제거](docs/decisions/010-remove-engine-bot.md)를 참고한다.

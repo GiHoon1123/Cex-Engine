@@ -60,20 +60,11 @@ use crate::domains::cex::routes::create_cex_router;
 
 자세한 규칙은 [Rust 공식 모듈 문서](https://doc.rust-lang.org/book/ch07-02-defining-modules-to-control-scope-and-privacy.html)에서 확인할 수 있다.
 
-### 공유 상태와 오류 전달
+### 공유 상태와 명령 핸들
 
-[AppState](../../src/shared/services/app_state.rs)는 TypeScript 백엔드의 의존성 주입 컨테이너처럼 서비스와 엔진을 연결한다.
+[AppState](../../src/shared/services/app_state.rs)는 TypeScript 백엔드의 의존성 주입 컨테이너처럼 서비스와 엔진 명령 핸들을 연결한다. 현재 생성자는 외부 지갑 서비스를 만들지 않으므로 `Result`와 `?`가 필요 없다. 최초 인증 제거 시점에 남겨 두었던 지갑·스왑 초기화는 [017번 기록](017-remove-retired-chain-integrations.md)에서 제거했다.
 
-```rust
-let wallet_state = WalletState::new(db.clone())?;
-let engine_instance = HighPerformanceEngine::new(db.clone());
-let engine = Arc::new(Mutex::new(engine_instance));
-let cex_state = CexState::new(db.clone(), engine.clone());
-```
-
-`db.clone()`은 DB 전체나 개별 연결을 복사하지 않고 연결 풀의 공유 핸들을 복제한다. `Arc<T>`는 여러 곳에서 같은 값을 소유하도록 참조 수를 관리한다. `engine.clone()`도 엔진을 새로 만들지 않고 같은 엔진의 공유 핸들을 복제한다.
-
-`Mutex<T>`는 공유 값에 대한 접근을 한 번에 하나로 제한한다. TypeScript의 객체 참조 공유와 달리, Rust는 여러 스레드의 접근과 소유권을 타입으로 표현한다. `?`는 서비스 생성 결과가 오류이면 호출자에게 오류를 전달해 초기화를 중단한다.
+`db.clone()`은 DB 전체를 복사하지 않고 연결 풀의 핸들을 복제한다. `EngineHandle::clone()`은 명령 전송 수단을 복제하며 오더북이나 실행 잔액을 공유하지 않는다. 거래 상태를 `Arc<Mutex<_>>`로 공개하지 않는 현재 경계는 [007번 기록](007-single-owner-engine-state.md)을 따른다.
 
 ### 테스트에서만 포함하는 코드
 
@@ -86,24 +77,22 @@ mod tests;
 
 ### 현재 코드로 연결해 읽기
 
-현재 AppState 생성자는 시작 코드에서 받은 엔진 핸들과 남은 도메인 서비스를 연결한다. 아래는 2026-10-23 현재 [실제 소스](../../src/shared/services/app_state.rs#L28)의 연속 행 발췌다. 메서드 일부일 수 있으므로 독립 실행 예제로 사용하지 않고 앞뒤 검증과 함께 읽는다. 과거 사이클의 코드/측정 시점은 본문의 기록을 유지한다.
+현재 AppState 생성자는 시작 코드에서 받은 엔진 핸들과 남은 도메인 서비스를 연결한다. 아래는 2026-10-25 현재 [실제 소스](../../src/shared/services/app_state.rs#L28)의 연속 행 발췌다. 메서드 일부일 수 있으므로 독립 실행 예제로 사용하지 않고 앞뒤 검증과 함께 읽는다. 과거 사이클의 코드/측정 시점은 본문의 기록을 유지한다.
 
 ```rust
-pub fn new(db: Database, engine: EngineHandle) -> Result<Self> {
-    // 남아 있는 도메인 서비스만 초기화한다. `?`는 지갑 서비스 생성에 실패하면
-    // 그 오류를 호출자에게 전달하며, 불완전한 AppState 생성을 중단한다.
-    let wallet_state = WalletState::new(db.clone())?;
-    let swap_state = SwapState::new(db.clone());
-
-    // 서비스에도 같은 엔진 인스턴스 전달 (Wrapper 불필요)
-    let cex_state = CexState::new(db.clone(), engine.clone());
+pub fn new(db: Database, engine: EngineHandle) -> Self {
+    Self {
+        cex_state: CexState::new(db, engine.clone()),
+        engine,
+    }
+}
 ```
 
-`?`는 서비스 생성 실패를 호출자에게 전달한다. `db.clone()`은 연결 핸들의 복제이며 사용자 인증 서비스의 재생성이 아니다. 엔진 실행 상태의 독점 소유는 별도 EngineState/EngineHandle 경계로 유지한다.
+이 생성자는 조립만 하므로 실패 반환형이 없다. `EngineHandle` 복제는 명령 송신 핸들 복제다. 엔진 실행 상태의 독점 소유는 별도 EngineState/EngineHandle 경계로 유지한다.
 
 ## 작성한 테스트
 
-회귀 테스트는 모두 [src/routes/tests.rs](../../src/routes/tests.rs)에 있다. SQLx의 `connect_lazy`로 DB 연결을 미루고, 기존 Bench 엔진으로 Kafka·저장 워커를 만들지 않는다. 테스트는 DB 쿼리를 수행하기 전의 라우팅과 입력 검증을 확인하므로 PostgreSQL·Kafka·Solana 서버 없이 실행할 수 있다.
+회귀 테스트는 모두 [src/routes/tests.rs](../../src/routes/tests.rs)에 있다. SQLx의 `connect_lazy`로 DB 연결을 미루고, 기존 Bench 엔진으로 Kafka·저장 워커를 만들지 않는다. 테스트는 DB 쿼리를 수행하기 전의 라우팅과 입력 검증을 확인하므로 PostgreSQL·Kafka 서버 없이 실행할 수 있다.
 
 테스트 도구는 이미 설치된 Tower의 `util` 기능을 개발 의존성에서 활성화했다. 별도 HTTP 테스트 프레임워크 없이 실제 라우터를 검사할 수 있는 대신, 포트를 통한 통신과 외부 저장소 연동은 이 테스트로 확인할 수 없다. 이 차이를 보완하기 위해 서버 재시작 후 실제 HTTP 응답도 별도로 확인했다.
 

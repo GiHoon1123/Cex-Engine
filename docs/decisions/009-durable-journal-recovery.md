@@ -14,7 +14,7 @@
 - [SQLite WAL](https://www.sqlite.org/wal.html)과 [synchronous 설정](https://www.sqlite.org/pragma.html#pragma_synchronous)의 커밋·동기화 계약을 사용한다. 직접 파일 프레임·부분 쓰기 복구·체크포인트를 구현하지 않는다.
 - 기존 SQLx 0.6.3은 SQLite 기능을 제공한다. 설치된 Cargo 기능과 `sqlite/connection/worker.rs`를 확인했다. 현재는 PostgreSQL 기능만 활성화돼 있으며, SQLite 비동기 연결에는 별도 내부 워커가 사용된다.
 - 전용 기록 스레드에서 동기 저장하는 현재 역할에는 [rusqlite 0.40.2](https://docs.rs/rusqlite/0.40.2/rusqlite/)를 선택했다. bundled SQLite 3.53.2를 함께 빌드한다. 새 DB 서버는 실행하지 않는다.
-- 본문 검사는 이미 사용하는 Solana SDK의 SHA-256을 사용한다. 인증 서명이나 악의적인 관리자 변조에 대한 방어로 해석하지 않는다.
+- 본문 검사는 SHA-256 원본 32바이트를 사용한다. 2026-10-25 [017번 기록](017-remove-retired-chain-integrations.md)에서 기존 SDK를 `sha2`로 대체했으며 기록 형식은 그대로다. 인증 서명이나 악의적인 관리자 변조에 대한 방어로 해석하지 않는다.
 
 ## 구조와 확정 경계
 
