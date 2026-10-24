@@ -1,0 +1,909 @@
+{
+  "cycle": 75,
+  "implementation_commit": "404e5a9c23049b3213ede919dfba8d58760a5bee",
+  "rust": {
+    "container": "cex-order-safety-e3e26ae06e80",
+    "checks": [
+      {
+        "case": "service-identity",
+        "exit": 0
+      },
+      {
+        "case": "audit",
+        "exit": 0
+      },
+      {
+        "case": "cancel-boundary",
+        "exit": 0
+      },
+      {
+        "case": "market",
+        "exit": 0
+      },
+      {
+        "case": "service-startup",
+        "exit": 0
+      },
+      {
+        "case": "boundary",
+        "exit": 0
+      },
+      {
+        "case": "journal",
+        "exit": 0
+      },
+      {
+        "case": "deposit",
+        "exit": 0
+      },
+      {
+        "case": "output",
+        "exit": 0
+      },
+      {
+        "case": "ownership",
+        "exit": 0
+      },
+      {
+        "case": "request",
+        "exit": 0
+      },
+      {
+        "case": "repository",
+        "exit": 0
+      },
+      {
+        "case": "settlement",
+        "exit": 0
+      },
+      {
+        "case": "receipt",
+        "exit": 0
+      },
+      {
+        "case": "startup",
+        "exit": 0
+      },
+      {
+        "case": "reservation",
+        "exit": 0
+      },
+      {
+        "case": "routes",
+        "exit": 0
+      },
+      {
+        "case": "compile",
+        "exit": 0
+      },
+      {
+        "case": "build",
+        "exit": 0
+      }
+    ],
+    "container_removed": true,
+    "executions": 160,
+    "unique_tests": 147,
+    "failed": 0,
+    "ignored": 0,
+    "cases": [
+      {
+        "name": "shared::service_identity::tests::service_and_audit_keys_are_independent",
+        "status": "ok",
+        "selection": "service-identity"
+      },
+      {
+        "name": "shared::service_identity::tests::service_identity_rejects_prefix_suffix_and_changed_byte",
+        "status": "ok",
+        "selection": "service-identity"
+      },
+      {
+        "name": "shared::service_identity::tests::service_key_limits_are_checked_before_use",
+        "status": "ok",
+        "selection": "service-identity"
+      },
+      {
+        "name": "shared::service_identity::tests::service_and_audit_keys_are_independent",
+        "status": "ok",
+        "selection": "audit"
+      },
+      {
+        "name": "domains::cex::engine::runtime::audit::tests::audit_http_authentication_bounds_and_capacity_fail_closed",
+        "status": "ok",
+        "selection": "audit"
+      },
+      {
+        "name": "domains::cex::engine::runtime::audit::tests::audit_rejects_corruption_missing_file_and_wrong_engine_without_mutation",
+        "status": "ok",
+        "selection": "audit"
+      },
+      {
+        "name": "domains::cex::engine::runtime::audit::tests::audit_reads_commits_and_fixed_cut_without_core_or_platform_database",
+        "status": "ok",
+        "selection": "audit"
+      },
+      {
+        "name": "domains::cex::services::order_service::cancellation_boundary_tests::cancellation_uses_owned_core_without_platform_database",
+        "status": "ok",
+        "selection": "cancel-boundary"
+      },
+      {
+        "name": "domains::cex::engine::runtime::market::tests::market_projection_aggregates_beyond_one_account_limit_without_rounding",
+        "status": "ok",
+        "selection": "market"
+      },
+      {
+        "name": "domains::cex::engine::runtime::market::tests::market_projection_skips_duplicates_and_rejections_and_preserves_other_pairs",
+        "status": "ok",
+        "selection": "market"
+      },
+      {
+        "name": "domains::cex::engine::runtime::market::tests::market_projection_market_buy_never_leaves_resting_budget",
+        "status": "ok",
+        "selection": "market"
+      },
+      {
+        "name": "domains::cex::engine::runtime::market::tests::market_projection_tracks_real_partial_fill_cancel_and_replay",
+        "status": "ok",
+        "selection": "market"
+      },
+      {
+        "name": "domains::cex::engine::runtime::market::tests::market_projection_depth_is_sorted_bounded_and_promotes_hidden_levels",
+        "status": "ok",
+        "selection": "market"
+      },
+      {
+        "name": "invalid_audit_identity_fails_before_journal_creation",
+        "status": "ok",
+        "selection": "service-startup"
+      },
+      {
+        "name": "engine_has_no_external_market_websocket_client_dependency",
+        "status": "ok",
+        "selection": "boundary"
+      },
+      {
+        "name": "engine_does_not_own_a_trading_bot",
+        "status": "ok",
+        "selection": "boundary"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::invalid_deposit_never_creates_account_or_consumes_identifier",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::deposit_identifier_cannot_change_user_asset_or_amount",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::deposit_once_preserves_locked_balance_and_duplicate_has_no_financial_output",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_full_queue_preserves_input_and_does_not_confirm_uncommitted_order",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_conflicting_order_id_is_recorded_without_second_execution",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::deposit_failed_receipt_replays_as_failure_and_keeps_original_payload",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_ioc_completion_failure_keeps_cursor_and_identical_retry",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_failed_balance_delta_preserves_original_and_replays_rejection",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_fee_amount_mismatch_blocks_recovery_even_with_valid_checksum",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_ioc_contract_rejects_previous_fee_version_without_mutation",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::deposit_journal_failure_never_acknowledges_or_publishes",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_commit_failure_closes_input_and_never_replies_success",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_process_ownership_rejects_second_owner_and_releases_on_drop",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_kafka_cannot_overtake_durable_watermark",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_fee_results_replay_and_duplicate_without_second_charge",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::deposit_output_failure_republishes_same_event_after_recovery",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_market_failure_keeps_cursor_and_replays_identical_snapshot",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::deposit_real_worker_concurrent_retries_and_restart_credit_once",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_lost_delivery_cursor_republishes_same_identity_timestamp_and_payload",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_ioc_zero_fill_and_partial_completion_replay_without_second_refund",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::valid_deposit_overflow_keeps_original_and_repeated_failure",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::journal::store::checksum_tests::journal_checksum_rejects_changed_payload_before_decode",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::journal::store::checksum_tests::journal_sha256_binary_checksum_is_unchanged",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_kafka_failure_keeps_durable_result_for_same_event_republication",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_multiple_makers_restore_fifo_and_remaining_order_exactly",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_old_fee_contract_is_rejected_without_rewriting_history",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_rejection_output_failure_keeps_cursor_and_identical_original",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_market_budget_and_ioc_remainder_replay_exactly",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_process_exit_during_uncommitted_write_preserves_last_commit",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_response_waits_for_commit_while_core_keeps_processing",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_unsupported_schema_blocks_without_rewriting_existing_file",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_rejection_contract_blocks_version_three_without_rewriting",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_rejection_preserves_original_and_restart_duplicate_has_no_second_effect",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_standard_restart_needs_no_platform_database_and_missing_log_is_blocked",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_corruption_gap_result_mismatch_and_cursor_ahead_block_recovery",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_replays_partial_fill_cancel_balance_and_duplicate_commands",
+        "status": "ok",
+        "selection": "journal"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::deposit_once_preserves_locked_balance_and_duplicate_has_no_financial_output",
+        "status": "ok",
+        "selection": "deposit"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::deposit_identifier_cannot_change_user_asset_or_amount",
+        "status": "ok",
+        "selection": "deposit"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::invalid_deposit_never_creates_account_or_consumes_identifier",
+        "status": "ok",
+        "selection": "deposit"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::valid_deposit_overflow_keeps_original_and_repeated_failure",
+        "status": "ok",
+        "selection": "deposit"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::deposit_failed_receipt_replays_as_failure_and_keeps_original_payload",
+        "status": "ok",
+        "selection": "deposit"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::deposit_journal_failure_never_acknowledges_or_publishes",
+        "status": "ok",
+        "selection": "deposit"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::deposit_output_failure_republishes_same_event_after_recovery",
+        "status": "ok",
+        "selection": "deposit"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::deposit_real_worker_concurrent_retries_and_restart_credit_once",
+        "status": "ok",
+        "selection": "deposit"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::output_tests::output_cancel_invalid_book_entry_is_rejected_before_unlock",
+        "status": "ok",
+        "selection": "output"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::output_tests::output_cancel_failure_preserves_order_and_success_updates_counter",
+        "status": "ok",
+        "selection": "output"
+      },
+      {
+        "name": "routes::tests::output_failure_closed_handle_reports_unavailable_health",
+        "status": "ok",
+        "selection": "output"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_rejection_output_failure_keeps_cursor_and_identical_original",
+        "status": "ok",
+        "selection": "output"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::deposit_output_failure_republishes_same_event_after_recovery",
+        "status": "ok",
+        "selection": "output"
+      },
+      {
+        "name": "shared::kafka::producer::tests::output_kafka_delivery_failure_is_not_reported_as_success",
+        "status": "ok",
+        "selection": "output"
+      },
+      {
+        "name": "domains::cex::engine::runtime::handle::ownership_handle_tests::ownership_handle_all_inputs_reject_full_queues_without_blocking",
+        "status": "ok",
+        "selection": "ownership"
+      },
+      {
+        "name": "domains::cex::engine::runtime::handle::ownership_handle_tests::ownership_handle_queries_enter_queue_without_waiting_for_other_reply",
+        "status": "ok",
+        "selection": "ownership"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::journal_tests::journal_process_ownership_rejects_second_owner_and_releases_on_drop",
+        "status": "ok",
+        "selection": "ownership"
+      },
+      {
+        "name": "domains::cex::engine::runtime::handle::ownership_handle_tests::ownership_handle_rejects_closed_and_disconnected_channels",
+        "status": "ok",
+        "selection": "ownership"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::ownership_tests::ownership_worker_failure_preserves_orderbook_and_balance",
+        "status": "ok",
+        "selection": "ownership"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::ownership_tests::ownership_worker_moves_state_and_matches_direct_core_results",
+        "status": "ok",
+        "selection": "ownership"
+      },
+      {
+        "name": "domains::cex::models::order::decimal_tests::request_decimals_require_strings_instead_of_json_floating_point",
+        "status": "ok",
+        "selection": "request"
+      },
+      {
+        "name": "domains::cex::models::order::decimal_tests::request_decimals_preserve_exact_strings_and_optional_absence",
+        "status": "ok",
+        "selection": "request"
+      },
+      {
+        "name": "domains::cex::models::order::decimal_tests::request_decimals_reject_precision_loss_in_every_amount_field",
+        "status": "ok",
+        "selection": "request"
+      },
+      {
+        "name": "shared::database::repositories::cex::order_repository::exact_amount_tests::order_read_rejects_unrepresentable_database_amount_without_panic",
+        "status": "ok",
+        "selection": "repository"
+      },
+      {
+        "name": "shared::database::repositories::cex::order_repository::exact_amount_tests::order_reads_preserve_exact_amount_and_numeric_price_priority",
+        "status": "ok",
+        "selection": "repository"
+      },
+      {
+        "name": "domains::cex::engine::balance_cache::settlement_tests::invalid_asset_pair_is_rejected_before_mutation",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::balance_cache::settlement_tests::quote_multiplication_overflow_returns_error_without_panic",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::balance_cache::settlement_tests::enormous_product_of_valid_operands_fails_without_panic",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::balance_cache::settlement_tests::invalid_user_order_and_asset_identifiers_are_rejected",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::balance_cache::settlement_tests::quote_finer_than_database_precision_is_not_rounded",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::balance_cache::settlement_tests::missing_buyer_asset_does_not_create_a_zero_row",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::balance_cache::settlement_tests::first_asset_shortage_keeps_all_balances_unchanged",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::balance_cache::settlement_tests::negative_and_zero_trade_values_are_rejected_before_mutation",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::balance_cache::settlement_tests::price_and_quantity_must_fit_current_database_precision",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::balance_cache::settlement_tests::missing_seller_asset_does_not_create_balances_or_move_quote",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::balance_cache::settlement_tests::exact_valid_product_beyond_i128_intermediate_is_supported",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::balance_cache::settlement_tests::decimal_precision_loss_on_last_recipient_rejects_all_changes",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::balance_cache::settlement_tests::existing_balances_and_unrelated_assets_are_preserved",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::balance_cache::settlement_tests::corrupt_negative_balance_is_not_hidden_or_normalized",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::balance_cache::settlement_tests::reservation_result_precision_failure_preserves_cache",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::balance_cache::settlement_tests::same_customer_keys_are_coalesced_without_losing_balances",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::balance_cache::settlement_tests::second_asset_shortage_does_not_leave_first_transfer_applied",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::balance_cache::settlement_tests::second_recipient_overflow_does_not_apply_either_asset",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::balance_cache::settlement_tests::smallest_supported_quote_is_transferred_exactly",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::balance_cache::settlement_tests::successful_trade_moves_both_assets",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::balance_cache::settlement_tests::valid_database_balance_cannot_overflow_on_either_recipient",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_fee_rounding_and_invalid_rates_are_explicit",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_invalid_fee_keeps_book_and_accounts_unchanged",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_ioc_refunds_unspendable_budget_dust",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_ioc_self_only_liquidity_returns_entire_reservation",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_benchmark_uses_same_core_and_failure_boundary",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_fees_follow_each_order_and_preserve_prior_deductions",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_partial_limit_buy_refunds_improvement_and_keeps_only_remaining_reservation",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_candidate_planning_never_mutates_original_orderbook",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::settlement_pipeline_tests::real_matching_pipeline_settles_both_assets_for_limit_and_market",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_price_time_priority_and_partial_maker_counters_are_preserved",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_reservation_failure_creates_neither_market_nor_zero_balance",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_failure_aborts_success_followups_for_limit_and_market",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_refund_precision_failure_preserves_book_and_entire_cache",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_market_budget_uses_exact_quantity_and_returns_dust",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_no_liquidity_market_orders_return_entire_reservation",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_only_self_liquidity_finishes_without_mutation_or_infinite_loop",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_self_orders_do_not_rotate_or_disappear",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_invalid_candidate_returns_error_without_panic_or_state_change",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_second_fill_failure_preserves_entire_book_and_cache",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_ioc_completes_full_partial_and_empty_buy_and_sell",
+        "status": "ok",
+        "selection": "settlement"
+      },
+      {
+        "name": "domains::cex::services::order_receipt::tests::acceptance_forces_synchronous_commit_even_if_session_default_is_off",
+        "status": "ok",
+        "selection": "receipt"
+      },
+      {
+        "name": "domains::cex::services::order_receipt::tests::changed_command_or_owner_cannot_reuse_receipt",
+        "status": "ok",
+        "selection": "receipt"
+      },
+      {
+        "name": "domains::cex::services::order_receipt::tests::closed_dispatch_channel_keeps_receipt_and_does_not_panic",
+        "status": "ok",
+        "selection": "receipt"
+      },
+      {
+        "name": "domains::cex::services::order_receipt::tests::commit_failure_does_not_dispatch_or_report_acceptance",
+        "status": "ok",
+        "selection": "receipt"
+      },
+      {
+        "name": "domains::cex::services::order_receipt::tests::concurrent_completion_keeps_duplicate_acceptance_valid",
+        "status": "ok",
+        "selection": "receipt"
+      },
+      {
+        "name": "domains::cex::services::order_receipt::tests::concurrent_receipts_execute_exactly_one_order",
+        "status": "ok",
+        "selection": "receipt"
+      },
+      {
+        "name": "domains::cex::services::order_receipt::tests::current_order_changes_do_not_change_existing_receipt",
+        "status": "ok",
+        "selection": "receipt"
+      },
+      {
+        "name": "domains::cex::services::order_receipt::tests::existing_db_receipt_does_not_confirm_a_closed_executor",
+        "status": "ok",
+        "selection": "receipt"
+      },
+      {
+        "name": "domains::cex::services::order_receipt::tests::http_contract_distinguishes_new_and_existing_receipt",
+        "status": "ok",
+        "selection": "receipt"
+      },
+      {
+        "name": "domains::cex::services::order_receipt::tests::invalid_identifiers_and_fields_never_dispatch",
+        "status": "ok",
+        "selection": "receipt"
+      },
+      {
+        "name": "domains::cex::services::order_receipt::tests::market_buy_preserves_exact_budget_and_null_amount",
+        "status": "ok",
+        "selection": "receipt"
+      },
+      {
+        "name": "domains::cex::services::order_receipt::tests::missing_receipt_storage_returns_unavailable_without_sql_details",
+        "status": "ok",
+        "selection": "receipt"
+      },
+      {
+        "name": "domains::cex::services::order_receipt::tests::platform_original_mismatch_is_rejected_before_receipt",
+        "status": "ok",
+        "selection": "receipt"
+      },
+      {
+        "name": "domains::cex::services::order_receipt::tests::receipt_fee_rate_is_frozen_and_invalid_policy_is_rejected",
+        "status": "ok",
+        "selection": "receipt"
+      },
+      {
+        "name": "domains::cex::services::order_receipt::tests::receipt_foreign_key_protects_platform_original",
+        "status": "ok",
+        "selection": "receipt"
+      },
+      {
+        "name": "domains::cex::services::order_receipt::tests::receipt_is_durable_before_dispatch_and_duplicate_keeps_timestamp",
+        "status": "ok",
+        "selection": "receipt"
+      },
+      {
+        "name": "domains::cex::services::order_receipt::tests::receipt_preserves_large_exact_amount_without_decoder_panic",
+        "status": "ok",
+        "selection": "receipt"
+      },
+      {
+        "name": "domains::cex::services::order_receipt::tests::receipt_rejects_unrepresentable_original_without_panic",
+        "status": "ok",
+        "selection": "receipt"
+      },
+      {
+        "name": "domains::cex::services::order_receipt::tests::unknown_or_terminal_platform_order_is_not_accepted",
+        "status": "ok",
+        "selection": "receipt"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::startup_tests::failed_validation_does_not_publish_earlier_valid_rows",
+        "status": "ok",
+        "selection": "startup"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::startup_tests::startup_preserves_large_exact_fraction_without_decoder_panic",
+        "status": "ok",
+        "selection": "startup"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::startup_tests::startup_propagates_database_inspection_failure",
+        "status": "ok",
+        "selection": "startup"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_available_outside_current_storage_contract",
+        "status": "ok",
+        "selection": "startup"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_duplicate_balance_rows",
+        "status": "ok",
+        "selection": "startup"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_invalid_user_and_asset_identifiers",
+        "status": "ok",
+        "selection": "startup"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_locked_balance_without_replay",
+        "status": "ok",
+        "selection": "startup"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_negative_available_balance",
+        "status": "ok",
+        "selection": "startup"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_negative_locked_balance",
+        "status": "ok",
+        "selection": "startup"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_partial_unknown_and_null_order_statuses",
+        "status": "ok",
+        "selection": "startup"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_pending_order_even_without_locked_balance",
+        "status": "ok",
+        "selection": "startup"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_receipt_even_with_terminal_order",
+        "status": "ok",
+        "selection": "startup"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_unrepresentable_decimal_without_panic",
+        "status": "ok",
+        "selection": "startup"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_unrepresentable_decimal_without_panicking",
+        "status": "ok",
+        "selection": "startup"
+      },
+      {
+        "name": "domains::cex::engine::runtime::engine::reservation_tests::platform_reservation_is_not_written_to_database_twice",
+        "status": "ok",
+        "selection": "reservation"
+      },
+      {
+        "name": "routes::tests::output_failure_closed_handle_reports_unavailable_health",
+        "status": "ok",
+        "selection": "routes"
+      },
+      {
+        "name": "routes::tests::trading_routes_still_validate_request_bodies",
+        "status": "ok",
+        "selection": "routes"
+      },
+      {
+        "name": "routes::tests::retired_wallet_routes_return_not_found",
+        "status": "ok",
+        "selection": "routes"
+      },
+      {
+        "name": "routes::tests::command_boundary_requires_platform_identity",
+        "status": "ok",
+        "selection": "routes"
+      },
+      {
+        "name": "routes::tests::removed_auth_routes_return_not_found",
+        "status": "ok",
+        "selection": "routes"
+      },
+      {
+        "name": "routes::tests::cancellation_still_requires_user_id",
+        "status": "ok",
+        "selection": "routes"
+      },
+      {
+        "name": "routes::tests::retired_swap_routes_return_not_found",
+        "status": "ok",
+        "selection": "routes"
+      },
+      {
+        "name": "routes::tests::health_check_remains_available",
+        "status": "ok",
+        "selection": "routes"
+      }
+    ]
+  },
+  "market": {
+    "postgres": "cex-market-pg-54a54068e8",
+    "kafka": "cex-market-broker-5ee556c58a",
+    "exit": 0,
+    "kafka_removed": true,
+    "postgres_removed": true,
+    "tests": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "limits": [
+    "Internal runtime command only; no new HTTP credit route, node deposit detection, or platform ledger consumer yet",
+    "No new throughput measurement or mainnet operation"
+  ]
+}
