@@ -101,9 +101,12 @@ async fn retired_wallet_routes_return_not_found() {
 #[tokio::test]
 async fn trading_routes_still_validate_request_bodies() {
     let (router, _engine) = app().await;
-    for path in ["/api/cex/orders", "/api/cex/balances/sync"] {
+    for path in ["/api/cex/orders"] {
         let request = Request::post(path)
-            .header("x-engine-service-token", "isolated-engine-service-token-32-bytes")
+            .header(
+                "x-engine-service-token",
+                "isolated-engine-service-token-32-bytes",
+            )
             .header("Content-Type", "application/json")
             .body(Body::from("{}"))
             .unwrap();
@@ -116,6 +119,32 @@ async fn trading_routes_still_validate_request_bodies() {
     }
 }
 
+/// 서비스 키를 알아도 거래 식별자 없는 잔액 증감 경로를 사용할 수 없어야 한다.
+/// 기존 잔액 명령의 저널 재생은 이 HTTP 경로의 존속 여부와 별개다.
+#[tokio::test]
+async fn retired_balance_delta_route_is_absent_for_all_service_identities() {
+    let (router, _engine) = app().await;
+    for token in [None, Some("isolated-engine-service-token-32-bytes")] {
+        let mut request =
+            Request::post("/api/cex/balances/sync").header("Content-Type", "application/json");
+        if let Some(value) = token {
+            request = request.header("x-engine-service-token", value);
+        }
+        let response = router
+            .clone()
+            .oneshot(
+                request
+                    .body(Body::from(
+                        r#"{"user_id":1,"mint":"BTC","available_delta":"1"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+}
+
 /// 취소 명령에 사용자와 거래쌍이 없으면 코어에 전달하기 전에 거부한다.
 #[tokio::test]
 async fn cancellation_still_requires_user_id() {
@@ -123,7 +152,10 @@ async fn cancellation_still_requires_user_id() {
     let response = router
         .oneshot(
             Request::delete("/api/cex/orders/1")
-                .header("x-engine-service-token", "isolated-engine-service-token-32-bytes")
+                .header(
+                    "x-engine-service-token",
+                    "isolated-engine-service-token-32-bytes",
+                )
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -132,7 +164,10 @@ async fn cancellation_still_requires_user_id() {
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     let body = to_bytes(response.into_body(), 1024).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["error"], "Invalid cancellation query: user_id, base_mint and quote_mint are required");
+    assert_eq!(
+        json["error"],
+        "Invalid cancellation query: user_id, base_mint and quote_mint are required"
+    );
 }
 
 #[tokio::test]
@@ -159,10 +194,19 @@ async fn command_boundary_requires_platform_identity() {
     for key in [None, Some("wrong-service-token")] {
         let mut request = Request::post("/api/cex/orders")
             .header("Authorization", "Bearer customer-token")
-            .header("x-engine-audit-token", "isolated-engine-service-token-32-bytes")
+            .header(
+                "x-engine-audit-token",
+                "isolated-engine-service-token-32-bytes",
+            )
             .header("Content-Type", "application/json");
-        if let Some(key) = key { request = request.header("x-engine-service-token", key); }
-        let response = router.clone().oneshot(request.body(Body::from("{}")).unwrap()).await.unwrap();
+        if let Some(key) = key {
+            request = request.header("x-engine-service-token", key);
+        }
+        let response = router
+            .clone()
+            .oneshot(request.body(Body::from("{}")).unwrap())
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 }
@@ -176,9 +220,17 @@ async fn retired_swap_routes_return_not_found() {
         (Method::POST, "/api/swap/transaction"),
         (Method::GET, "/api/tokens/search"),
     ] {
-        let response = router.clone().oneshot(
-            Request::builder().method(method).uri(path).body(Body::empty()).unwrap()
-        ).await.unwrap();
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
     }
 }

@@ -1,9 +1,3 @@
-// CEX handlers module
-// CEX 핸들러 모듈
-
-pub mod balance_handler;
+//! 현재 활성화한 거래 명령 핸들러다. 금액 증감만 받는 구형 외부 경로는 제공하지 않는다.
 pub mod order_handler;
-// trade_handler와 position_handler는 Java에서 조회 API를 제공하므로 삭제됨
-
-pub use balance_handler::*;
 pub use order_handler::*;
