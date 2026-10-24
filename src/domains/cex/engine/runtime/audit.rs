@@ -23,7 +23,7 @@ use tokio::sync::Semaphore;
 #[derive(Clone)]
 pub struct AuditReader {
     path: PathBuf,
-    token: Option<String>,
+    token: Option<crate::shared::service_identity::ServiceToken>,
     // 조회끼리의 동시 실행만 제한한다. 코어가 이 세마포어를 획득하는 경로는 없다.
     capacity: Arc<Semaphore>,
 }
@@ -44,10 +44,8 @@ pub struct AuditPage {
 }
 impl AuditReader {
     pub fn new(directory: &Path, token: Option<String>) -> Result<Self> {
-        ensure!(
-            token.as_ref().is_none_or(|value| value.len() >= 32),
-            "감사 조회 키는 32바이트 이상이어야 합니다"
-        );
+        // 키가 없으면 조회를 비활성화하고 설정한 키는 워커 시작 전 동일한 크기 계약으로 검사한다.
+        let token = token.as_deref().map(crate::shared::service_identity::ServiceToken::parse).transpose()?;
         Ok(Self {
             path: directory.join("journal.sqlite3"),
             token,
@@ -155,7 +153,7 @@ pub async fn page(
         .get("x-engine-audit-token")
         .and_then(|value| value.to_str().ok())
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    if solana_sdk::hash::hash(provided.as_bytes()) != solana_sdk::hash::hash(token.as_bytes()) {
+    if !token.matches(provided) {
         return Err(StatusCode::UNAUTHORIZED);
     }
     if !(1..=100).contains(&query.limit.unwrap_or(50))

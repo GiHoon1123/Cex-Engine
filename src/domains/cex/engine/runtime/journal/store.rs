@@ -7,6 +7,7 @@ use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
     fs::{File, OpenOptions},
     os::fd::AsRawFd,
@@ -60,11 +61,9 @@ pub(in super::super) struct Store {
     pub path: PathBuf,
 }
 fn digest(payload: &str) -> Vec<u8> {
-    // 이미 설치된 솔라나 SDK의 SHA-256을 사용한다. 기록 변조 방지 서명이 아니라
-    // 저장 중 손상·잘못 바뀐 본문을 재생 전에 검출하기 위한 검사다.
-    solana_sdk::hash::hash(payload.as_bytes())
-        .to_bytes()
-        .to_vec()
+    // 기존 SDK도 같은 SHA-256을 사용했다. 기존 저널과 동일한 원문 바이트/32바이트 BLOB을 유지한다.
+    // 변조 방지 서명이 아니라 저장 손상을 재생 전에 검출하는 검사 합이다.
+    Sha256::digest(payload.as_bytes()).to_vec()
 }
 pub(in super::super) fn decode<T: serde::de::DeserializeOwned>(
     payload: String,
@@ -335,4 +334,21 @@ pub(in super::super) fn run(
     }
     finish.successful = true;
     Ok(())
+}
+
+#[cfg(test)]
+mod checksum_tests {
+    use super::*;
+    #[test]
+    fn journal_sha256_binary_checksum_is_unchanged() {
+        // 공개 표준 벡터를 고정한다. 저장 형식을 문자열/인코딩으로 바꾸지 않는다.
+        let expected = [0xb9,0x4d,0x27,0xb9,0x93,0x4d,0x3e,0x08,0xa5,0x2e,0x52,0xd7,0xda,0x7d,0xab,0xfa,
+            0xc4,0x84,0xef,0xe3,0x7a,0x53,0x80,0xee,0x90,0x88,0xf7,0xac,0xe2,0xef,0xcd,0xe9];
+        assert_eq!(digest("hello world"),expected);
+    }
+    #[test]
+    fn journal_checksum_rejects_changed_payload_before_decode() {
+        let payload=r#"{"sequence":1}"#.to_owned();let checksum=digest(&payload);
+        assert!(decode::<serde_json::Value>(r#"{"sequence":2}"#.into(),checksum).is_err());
+    }
 }

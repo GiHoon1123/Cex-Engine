@@ -1,8 +1,3 @@
-// All repositories module
-pub mod wallet;
+// 현재 주문 접수/원장 검증에 사용하는 저장소만 공개한다. 과거 지갑 DB 기록은 변경하지 않는다.
 pub mod cex;
-
-// Re-export all repositories for convenience
-pub use wallet::*;
 pub use cex::*;
-

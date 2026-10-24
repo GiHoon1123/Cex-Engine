@@ -11,6 +11,7 @@ use crate::domains::cex::engine::Engine;
 use anyhow::Result;
 use crossbeam::channel::bounded;
 use rust_decimal::Decimal;
+use sha2::Digest;
 use std::{
     path::PathBuf,
     sync::{
@@ -305,9 +306,7 @@ fn journal_corruption_gap_result_mismatch_and_cursor_ahead_block_recovery() -> R
                 let mut record = store.read(1)?;
                 record.outcome = Outcome::Applied(None);
                 let payload = serde_json::to_string(&record)?;
-                let checksum = solana_sdk::hash::hash(payload.as_bytes())
-                    .to_bytes()
-                    .to_vec();
+                let checksum = sha2::Sha256::digest(payload.as_bytes()).to_vec();
                 store.connection.execute(
                     "UPDATE records SET payload=?1,checksum=?2",
                     rusqlite::params![payload, checksum],
@@ -793,9 +792,7 @@ fn journal_fee_amount_mismatch_blocks_recovery_even_with_valid_checksum() -> Res
     assert_eq!(fee.as_str(), Some("0.001"));
     *fee = serde_json::json!("0.002");
     let payload = serde_json::to_string(&record)?;
-    let checksum = solana_sdk::hash::hash(payload.as_bytes())
-        .to_bytes()
-        .to_vec();
+    let checksum = sha2::Sha256::digest(payload.as_bytes()).to_vec();
     // 검사 합까지 정상인 잘못된 결과를 주입해, 저장 손상 검사와 계산 결과 검사가 독립인지 확인한다.
     store
         .connection

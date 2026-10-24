@@ -296,20 +296,11 @@ async fn receipt_foreign_key_protects_platform_original(pool: PgPool) -> Result<
 }
 
 async fn router(pool: PgPool) -> Result<(axum::Router, HighPerformanceEngine)> {
-    use crate::domains::{
-        cex::services::CexState, swap::services::state::SwapState,
-        wallet::services::state::WalletState,
-    };
     use crate::shared::services::AppState;
     let db = Database::noop(pool.clone());
     let (_, engine) = service(pool.clone()).await?;
-    let router = crate::routes::create_router("isolated-engine-service-token-32-bytes").with_state(AppState {
-        db: db.clone(),
-        engine: engine.handle(),
-        cex_state: CexState::new(db.clone(), engine.handle()),
-        wallet_state: WalletState::new(db.clone()).unwrap(),
-        swap_state: SwapState::new(db),
-    });
+    let router = crate::routes::create_router("isolated-engine-service-token-32-bytes")
+        .with_state(AppState::new(db, engine.handle()));
     Ok((router, engine))
 }
 

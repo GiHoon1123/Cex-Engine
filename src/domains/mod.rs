@@ -1,5 +1,2 @@
-// Domains module
-pub mod wallet;
-pub mod swap;
+// 엔진에서 실행하는 거래 도메인만 컴파일한다. 지갑 수탁·외부 스왑은 플랫폼 업무와 분리한다.
 pub mod cex;
-

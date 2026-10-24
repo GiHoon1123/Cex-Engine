@@ -17,8 +17,6 @@ serde_json = "1.0"
 # 엔진 전용 저널의 부분 쓰기·커밋·복구는 검증된 저장 엔진에 맡긴다.
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 
-# HTTP Client (axios 같은 역할)
-reqwest = { version = "0.11", features = ["json"] }
 
 # Error handling
 anyhow = "1.0"
@@ -28,11 +26,6 @@ thiserror = "1.0"
 utoipa = { version = "4.0", features = ["axum_extras", "chrono"] }
 utoipa-swagger-ui = { version = "6.0", features = ["axum"] }
 
-# Solana client (RPC 통신용)
-solana-client = "1.18"
-solana-sdk = "1.18"
-anchor-client = "0.30"
-anchor-lang = "0.30"
 
 # Database (PostgreSQL)
 sqlx = { version = "0.6", default-features = false, features = ["runtime-tokio-native-tls", "postgres", "chrono", "uuid", "macros", "migrate", "decimal"] }
@@ -43,8 +36,6 @@ rust_decimal = { version = "1.33", features = ["serde-with-str"] }  # For precis
 # Decimal 범위를 넘더라도 반올림 없이 검사하고, 최종 값만 정확히 변환한다.
 num-bigint = "0.4.6"
 
-# Base64 encoding (for private key storage)
-base64 = "0.21"
 
 # High-performance channels (Lock-free Ring Buffer)
 crossbeam = "0.8"
@@ -67,6 +58,11 @@ futures-util = "0.3"
 
 # Kafka (이벤트 발행용)
 rdkafka = { version = "0.36", features = ["cmake-build", "ssl-vendored"] }
+
+# 기존 잠금 파일과 설치 소스의 표준 해시/고정 길이 비교 구현을 직접 사용한다.
+# 체인 SDK를 서비스 인증과 저널 검사 합 때문에 유지하지 않는다.
+sha2 = "=0.10.9"
+constant_time_eq = "=0.4.2"
 
 [dev-dependencies]
 # 이미 잠금 파일에 있는 임시 디렉터리 도구로 시험 저널을 자동 회수한다.

@@ -10,10 +10,10 @@ use axum::{routing::get, Router, middleware::{self, Next}, extract::Request, htt
 /// 플랫폼 신원 검증은 HTTP 경계에서 끝난다. 체결 코어에 사용자 역할·인증 상태를 전달하지 않는다.
 pub fn create_router(service_token: &str) -> Router<AppState> {
     assert!(service_token.len() >= 32 && service_token.len() <= 1024, "서비스 키는 32~1024바이트여야 합니다");
-    let expected = solana_sdk::hash::hash(service_token.as_bytes());
+    let expected = crate::shared::service_identity::ServiceToken::parse(service_token).expect("유효한 플랫폼 명령 키가 필요합니다");
     let commands = create_cex_router().route_layer(middleware::from_fn(move |request: Request, next: Next| async move {
         let provided = request.headers().get("x-engine-service-token").and_then(|value| value.to_str().ok());
-        if provided.is_none_or(|key| key.len() > 1024 || solana_sdk::hash::hash(key.as_bytes()) != expected) {
+        if provided.is_none_or(|key| !expected.matches(key)) {
             return Err(StatusCode::UNAUTHORIZED);
         }
         Ok(next.run(request).await)

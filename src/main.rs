@@ -3,7 +3,7 @@ use tokio::net::TcpListener;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-// New module structure
+// 실행하는 도메인과 HTTP 경계를 조립한다.
 mod domains;
 mod routes;
 mod shared;
@@ -12,9 +12,7 @@ use crate::shared::database::Database;
 use crate::shared::services::AppState;
 use routes::create_router;
 
-// Import models for OpenAPI schema
-// use crate::domains::swap::models::*;
-// use crate::domains::wallet::models::*;
+// 실제 공개하는 거래 API 모델만 스키마에 등록한다.
 use crate::domains::cex::models::*;
 
 // OpenAPI 스키마 정의: Swagger 문서 자동 생성 (최소화: 주문 생성/취소/헬스체크만)
@@ -24,67 +22,15 @@ use crate::domains::cex::models::*;
         crate::shared::handlers::health::health_check,
         crate::domains::cex::handlers::order_handler::create_order,
         crate::domains::cex::handlers::order_handler::cancel_order,
-        // crate::domains::swap::handlers::swap_handler::get_quote,
-        // crate::domains::swap::handlers::swap_handler::create_swap_transaction,
-        // crate::domains::swap::handlers::token_handler::search_tokens,
-        // crate::domains::cex::handlers::balance_handler::get_all_balances,
-        // crate::domains::cex::handlers::balance_handler::get_balance,
-        // crate::domains::cex::handlers::order_handler::get_order,
-        // crate::domains::cex::handlers::order_handler::get_my_orders,
-        // crate::domains::cex::handlers::order_handler::get_orderbook,
-        // crate::domains::cex::handlers::trade_handler::get_trades,
-        // crate::domains::cex::handlers::trade_handler::get_my_trades,
-        // crate::domains::cex::handlers::trade_handler::get_latest_price,
-        // crate::domains::cex::handlers::trade_handler::get_24h_volume,
-        // crate::domains::cex::handlers::position_handler::get_position,
-        // crate::domains::cex::handlers::position_handler::get_all_positions,
     ),
     components(schemas(
-        // QuoteRequest,
-        // QuoteResponse,
-        // RoutePlan,
-        // SwapInfo,
-        // TokenSearchRequest,
-        // TokenSearchResponse,
-        // Token,
-        // SwapTransactionRequest,
-        // SwapTransactionResponse,
-        // Transaction,
-        // CreateWalletResponse,
-        // WalletResponse,
-        // WalletsResponse,
-        // WalletBalanceResponse,
-        // TransferSolRequest,
-        // TransferSolResponse,
-        // TransactionStatusResponse,
-        // SolanaWallet,
-        // UserBalance,
-        // ExchangeBalancesResponse,
-        // ExchangeBalanceResponse,
         Order,
         CreateOrderRequest,
         crate::domains::cex::services::order_receipt::OrderAcceptance,
-        // OrderResponse,
-        // OrdersResponse,
-        // OrderBookEntry,
-        // OrderBookResponse,
-        // crate::domains::cex::handlers::order_handler::OrderbookResponse,
         crate::shared::handlers::health::HealthResponse,
-        // Trade,
-        // TradesResponse,
-        // AssetPosition,
-        // AssetPositionResponse,
-        // AllPositionsResponse,
-        // TradeSummary,
     )),
     tags(
-        // (name = "Swap", description = "Swap API endpoints (Jupiter integration)"),
-        // (name = "Tokens", description = "Token search API endpoints"),
-        // (name = "Wallets", description = "Wallet API endpoints (Solana wallet management)"),
-        // (name = "CEX Balances", description = "CEX Exchange balance API endpoints"),
         (name = "CEX Orders", description = "CEX Exchange order API endpoints"),
-        // (name = "CEX Trades", description = "CEX Exchange trade API endpoints"),
-        // (name = "CEX Positions", description = "CEX Exchange position API endpoints (P&L, average entry price)"),
         (name = "Health", description = "Health check API endpoints")
     ),
     info(
@@ -124,15 +70,14 @@ async fn main() {
     // 생명주기 제어 객체는 main에 남긴다. 검증 후 거래 상태를 워커로 이동하고,
     // HTTP·UDP에는 복제 가능한 송신 핸들만 주입한다.
     let mut engine = crate::domains::cex::engine::runtime::HighPerformanceEngine::new(db.clone());
-    engine.start().await.expect("Failed to start engine");
-    let app_state =
-        AppState::new(db.clone(), engine.handle()).expect("Failed to initialize AppState");
-
     // 고객 명령과 내부 감사 조회를 조립한다. 내부 키는 고객 인증과 별도로 주입한다.
     let audit = crate::domains::cex::engine::runtime::audit::AuditReader::new(
         engine.journal_directory(),
         std::env::var("ENGINE_AUDIT_TOKEN").ok(),
     ).expect("잘못된 감사 조회 설정");
+    engine.start().await.expect("Failed to start engine");
+    let app_state = AppState::new(db.clone(), engine.handle());
+
     let app = Router::new()
         .merge(create_router(&service_token))
         // Swagger UI 활성화

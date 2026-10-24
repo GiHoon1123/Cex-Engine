@@ -1,7 +1,5 @@
 use super::create_router;
-use crate::domains::cex::{engine::runtime::HighPerformanceEngine, services::state::CexState};
-use crate::domains::swap::services::state::SwapState;
-use crate::domains::wallet::services::state::WalletState;
+use crate::domains::cex::engine::runtime::HighPerformanceEngine;
 use crate::shared::{database::Database, services::AppState};
 use axum::{
     body::{to_bytes, Body},
@@ -16,7 +14,7 @@ use tower::ServiceExt;
 /// `connect_lazy`는 설정만 가진 풀을 만든다. 쿼리가 실행될 때까지 DB에 연결하지
 /// 않으며, 여기에 사용하는 1번 포트에는 테스트 DB를 띄우지 않는다.
 /// Bench 엔진은 Kafka와 저장 워커를 생성하지 않는다. 아래 테스트는 경로 선택과
-/// 입력 검증까지만 실행하므로 DB·Kafka·Solana 서버의 상태에 의존하지 않는다.
+/// 입력 검증까지만 실행하므로 DB·Kafka 서버의 상태에 의존하지 않는다.
 async fn app() -> (Router, HighPerformanceEngine) {
     let mut engine = HighPerformanceEngine::new_bench();
     engine.start().await.unwrap();
@@ -28,13 +26,7 @@ fn app_with_engine(engine: crate::domains::cex::engine::runtime::EngineHandle) -
         .connect_lazy("postgresql://unused:unused@127.0.0.1:1/unused")
         .expect("valid lazy pool configuration");
     let db = Database::noop(pool);
-    let state = AppState {
-        db: db.clone(),
-        wallet_state: WalletState::new(db.clone()).expect("wallet client configuration"),
-        swap_state: SwapState::new(db.clone()),
-        cex_state: CexState::new(db, engine.clone()),
-        engine,
-    };
+    let state = AppState::new(db, engine);
     create_router("isolated-engine-service-token-32-bytes").with_state(state)
 }
 
@@ -172,5 +164,21 @@ async fn command_boundary_requires_platform_identity() {
         if let Some(key) = key { request = request.header("x-engine-service-token", key); }
         let response = router.clone().oneshot(request.body(Body::from("{}")).unwrap()).await.unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+}
+
+/// 폐기한 외부 스왑·토큰 검색은 지갑과 함께 엔진 공개 경로에 남지 않는다.
+#[tokio::test]
+async fn retired_swap_routes_return_not_found() {
+    let (router, _engine) = app().await;
+    for (method, path) in [
+        (Method::GET, "/api/swap/quote"),
+        (Method::POST, "/api/swap/transaction"),
+        (Method::GET, "/api/tokens/search"),
+    ] {
+        let response = router.clone().oneshot(
+            Request::builder().method(method).uri(path).body(Body::empty()).unwrap()
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
     }
 }
