@@ -40,6 +40,7 @@ pub enum EngineMode {
 /// 실행 중에는 엔진 워커만 보유하고 정지 후 제어 객체로 되돌려준다.
 /// 상태 공유 참조나 내부 락을 갖지 않는다.
 pub(super) struct EngineState {
+    pub deposit_receipts: HashMap<uuid::Uuid, super::deposit::DepositReceipt>,
     pub submissions: HashMap<u64, crate::domains::cex::engine::types::OrderEntry>,
     pub cancellations: HashMap<u64, crate::domains::cex::engine::types::OrderEntry>,
     pub orderbooks: HashMap<TradingPair, OrderBook>,
@@ -49,6 +50,7 @@ pub(super) struct EngineState {
 impl EngineState {
     pub(super) fn new() -> Self {
         Self {
+            deposit_receipts: HashMap::new(),
             submissions: HashMap::new(),
             cancellations: HashMap::new(),
             orderbooks: HashMap::new(),

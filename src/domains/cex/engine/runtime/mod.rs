@@ -28,6 +28,8 @@ pub use commands::OrderCommand;
 pub use balance_commands::BalanceCommand;
 
 mod journal;
+mod deposit;
+pub use deposit::DepositCredit;
 
 pub(crate) mod market;
 

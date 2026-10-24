@@ -54,6 +54,7 @@ try:
         ("service-startup", ["test", "--locked", "--test", "service_startup"]),
         ("boundary", ["test", "--locked", "--test", "engine_boundary"]),
         ("journal", ["test", "--locked", "--lib", "journal_"]),
+        ("deposit", ["test", "--locked", "--lib", "deposit"]),
         ("output", ["test", "--locked", "--lib", "output_"]),
         ("ownership", ["test", "--locked", "--lib", "ownership_"]),
         ("request", ["test", "--locked", "--lib", "request_decimals"]),

@@ -24,6 +24,24 @@ pub struct EngineHandle {
 }
 
 impl EngineHandle {
+    /// 같은 입금 원본만 재시도한다. 성공 응답은 기존 기록 워커의 영속 커밋 뒤에만 도착한다.
+    pub async fn credit_deposit(&self, credit: super::DepositCredit) -> Result<()> {
+        let (sender, receiver) = oneshot::channel();
+        self.send_balance(BalanceCommand::CreditDeposit {
+            credit,
+            response: sender,
+        })?;
+        timeout(Duration::from_secs(3), receiver)
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!("Deposit outcome unknown; retry the same deposit id and content")
+            })?
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "Deposit journal response unavailable; retry the same deposit id and content"
+                )
+            })?
+    }
     /// 닫힘은 정상 정지 또는 출력 실패로 더 이상 명령을 실행하지 않음을 뜻한다.
     /// 브로커 연결이나 프로세스 장애 복구 가능성 전체를 검증하는 상태는 아니다.
     pub fn is_accepting(&self) -> bool {

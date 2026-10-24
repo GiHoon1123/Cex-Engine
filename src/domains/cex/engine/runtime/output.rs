@@ -19,6 +19,7 @@ use std::sync::{
 /// 일부만 전달되는 것을 막는다. 문자열과 직렬화는 출력 워커에서 구성한다.
 #[derive(Debug, Serialize, Deserialize)]
 pub(super) enum OutputBatch {
+    DepositCredited(super::DepositCredit),
     Submitted {
         order_id: u64,
         trades: Vec<TradeOutput>,
@@ -92,6 +93,20 @@ pub(super) fn visit_events(
     mut send: impl FnMut(usize, String) -> std::result::Result<(), DeliveryError>,
 ) -> std::result::Result<(), DeliveryError> {
     match batch {
+        OutputBatch::DepositCredited(credit) => {
+            // 결과 식별자는 원래 저널 위치다. 재발행에서도 시각과 식별자를 그대로 유지한다.
+            let event = serde_json::json!({
+                "event_id": format!("{}:{}:0", position.engine_id, position.sequence),
+                "engine_id": position.engine_id,
+                "event_type": "deposit_credited",
+                "deposit_id": credit.deposit_id,
+                "user_id": credit.user_id,
+                "asset": credit.asset,
+                "amount": credit.amount,
+                "timestamp": position.timestamp,
+            });
+            send(0, encode(&event, 0)?)?;
+        }
         OutputBatch::Rejected { order, .. } => {
             // 거절도 같은 명령의 영속 결과다. 오류 문자열이나 HTTP 상태를 반환 근거로
             // 사용하지 않고 원본과 연결된 고유 결과를 체결·취소와 같은 순서로 공개한다.

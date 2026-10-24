@@ -19,6 +19,7 @@ pub(super) mod store;
 /// 재생은 같은 계산 함수를 사용하고 저장된 결과와 비교한다.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) enum Command {
+    CreditDeposit(super::DepositCredit),
     Submit(OrderEntry),
     Cancel {
         order_id: u64,
@@ -129,6 +130,7 @@ pub(super) fn apply(state: &mut EngineState, command: &Command) -> Outcome {
 }
 fn execute(state: &mut EngineState, command: &Command) -> Result<Option<OutputBatch>> {
     match command {
+        Command::CreditDeposit(credit) => super::deposit::apply(state, credit),
         Command::Submit(order) => {
             if let Some(original) = state.submissions.get(&order.id) {
                 let mut repeated = order.clone();

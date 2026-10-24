@@ -1004,3 +1004,333 @@ fn journal_rejection_contract_blocks_version_three_without_rewriting() -> Result
     );
     Ok(())
 }
+
+fn deposit_credit(id: uuid::Uuid, user: u64, value: Decimal) -> super::super::DepositCredit {
+    super::super::DepositCredit {
+        deposit_id: id,
+        user_id: user,
+        asset: "BTC".into(),
+        amount: value,
+    }
+}
+
+#[test]
+fn deposit_once_preserves_locked_balance_and_duplicate_has_no_financial_output() {
+    let mut state = seeded();
+    state
+        .executor
+        .balance_cache_mut()
+        .set_balance(3, "BTC", Decimal::ONE, Decimal::from(2));
+    let credit = deposit_credit(uuid::Uuid::new_v4(), 3, Decimal::new(125, 8));
+    assert!(matches!(
+        apply(&mut state, &Command::CreditDeposit(credit.clone())),
+        Outcome::Applied(Some(output::OutputBatch::DepositCredited(_)))
+    ));
+    assert!(matches!(
+        apply(&mut state, &Command::CreditDeposit(credit)),
+        Outcome::Applied(None)
+    ));
+    let balance = state
+        .executor
+        .balance_cache()
+        .get_balance(3, "BTC")
+        .unwrap();
+    assert_eq!(balance.available, Decimal::ONE + Decimal::new(125, 8));
+    assert_eq!(balance.locked, Decimal::from(2));
+}
+
+#[test]
+fn deposit_identifier_cannot_change_user_asset_or_amount() {
+    let mut state = seeded();
+    let credit = deposit_credit(uuid::Uuid::new_v4(), 3, Decimal::ONE);
+    assert!(matches!(
+        apply(&mut state, &Command::CreditDeposit(credit.clone())),
+        Outcome::Applied(Some(_))
+    ));
+    let mut other_user = credit.clone();
+    other_user.user_id = 4;
+    let mut other_asset = credit.clone();
+    other_asset.asset = "USDT".into();
+    let mut other_amount = credit.clone();
+    other_amount.amount = Decimal::from(2);
+    for changed in [other_user, other_asset, other_amount] {
+        assert!(matches!(
+            apply(&mut state, &Command::CreditDeposit(changed)),
+            Outcome::Failed(_)
+        ));
+    }
+    assert_eq!(
+        state
+            .executor
+            .balance_cache()
+            .get_balance(3, "BTC")
+            .unwrap()
+            .available,
+        Decimal::ONE
+    );
+    assert!(state
+        .executor
+        .balance_cache()
+        .get_balance(4, "BTC")
+        .is_none());
+    assert!(state
+        .executor
+        .balance_cache()
+        .get_balance(3, "USDT")
+        .is_none());
+}
+
+#[test]
+fn invalid_deposit_never_creates_account_or_consumes_identifier() {
+    let mut state = seeded();
+    let original = deposit_credit(uuid::Uuid::new_v4(), 3, Decimal::ONE);
+    let mut invalid = vec![];
+    for value in [Decimal::ZERO, -Decimal::ONE, Decimal::new(1, 10)] {
+        let mut one = original.clone();
+        one.amount = value;
+        invalid.push(one);
+    }
+    let mut nil = original.clone();
+    nil.deposit_id = uuid::Uuid::nil();
+    invalid.push(nil);
+    let mut zero = original.clone();
+    zero.user_id = 0;
+    invalid.push(zero);
+    for asset in [
+        "".to_string(),
+        " BTC".into(),
+        "BTC ".into(),
+        "x".repeat(129),
+    ] {
+        let mut one = original.clone();
+        one.asset = asset;
+        invalid.push(one);
+    }
+    for one in invalid {
+        assert!(matches!(
+            apply(&mut state, &Command::CreditDeposit(one)),
+            Outcome::Failed(_)
+        ));
+    }
+    assert!(state
+        .executor
+        .balance_cache()
+        .get_balance(3, "BTC")
+        .is_none());
+    assert!(state.deposit_receipts.is_empty());
+    assert!(matches!(
+        apply(&mut state, &Command::CreditDeposit(original)),
+        Outcome::Applied(Some(_))
+    ));
+}
+
+#[test]
+fn valid_deposit_overflow_keeps_original_and_repeated_failure() {
+    let mut state = seeded();
+    let maximum = Decimal::from_str_exact("999999999999999999999").unwrap();
+    state
+        .executor
+        .balance_cache_mut()
+        .set_balance(3, "BTC", maximum, Decimal::from(2));
+    let credit = deposit_credit(uuid::Uuid::new_v4(), 3, maximum);
+    let failed = apply(&mut state, &Command::CreditDeposit(credit.clone()));
+    assert!(matches!(failed, Outcome::Failed(_)));
+    assert_eq!(
+        state
+            .executor
+            .balance_cache()
+            .get_balance(3, "BTC")
+            .unwrap()
+            .available,
+        maximum
+    );
+    // 원래 계산 실패 이후 잔액이 달라져도 같은 입금을 성공으로 바꿔 답하지 않는다.
+    state
+        .executor
+        .balance_cache_mut()
+        .set_balance(3, "BTC", Decimal::ZERO, Decimal::from(2));
+    let repeated = apply(&mut state, &Command::CreditDeposit(credit.clone()));
+    assert_eq!(
+        serde_json::to_string(&failed).unwrap(),
+        serde_json::to_string(&repeated).unwrap()
+    );
+    let mut changed = credit;
+    changed.amount = Decimal::ONE;
+    assert!(matches!(
+        apply(&mut state, &Command::CreditDeposit(changed)),
+        Outcome::Failed(_)
+    ));
+    assert_eq!(
+        state
+            .executor
+            .balance_cache()
+            .get_balance(3, "BTC")
+            .unwrap()
+            .available,
+        Decimal::ZERO
+    );
+}
+
+#[tokio::test]
+async fn deposit_real_worker_concurrent_retries_and_restart_credit_once() -> Result<()> {
+    let directory = Directory::new();
+    let store = initialize(&directory.0);
+    let mut engine = HighPerformanceEngine::new_bench();
+    let (sent, received) = bounded(10);
+    attach(&mut engine, store, move |batch, position| {
+        output::visit_events(batch, position, |_, payload| {
+            sent.send(payload).unwrap();
+            Ok(())
+        })
+    });
+    let credit = deposit_credit(uuid::Uuid::new_v4(), 3, Decimal::new(12345678, 8));
+    let handle = engine.handle();
+    let (one, two) = tokio::join!(
+        handle.credit_deposit(credit.clone()),
+        handle.credit_deposit(credit.clone())
+    );
+    one?;
+    two?;
+    assert_eq!(
+        handle.get_balance(3, "BTC").await?,
+        (credit.amount, Decimal::ZERO)
+    );
+    engine.stop().await?;
+    let events: Vec<_> = received.try_iter().collect();
+    assert_eq!(events.len(), 1);
+    let event: serde_json::Value = serde_json::from_str(&events[0])?;
+    assert_eq!(event["event_type"], "deposit_credited");
+    assert_eq!(event["deposit_id"], credit.deposit_id.to_string());
+    assert_eq!(event["amount"], "0.12345678");
+    let store = Store::open(&directory.0)?;
+    let mut restarted = HighPerformanceEngine::new_bench();
+    let (sent, received) = bounded(10);
+    attach(&mut restarted, store, move |batch, position| {
+        output::visit_events(batch, position, |_, payload| {
+            sent.send(payload).unwrap();
+            Ok(())
+        })
+    });
+    restarted.handle().credit_deposit(credit.clone()).await?;
+    assert_eq!(
+        restarted.handle().get_balance(3, "BTC").await?,
+        (credit.amount, Decimal::ZERO)
+    );
+    let mut conflict = credit;
+    conflict.amount = Decimal::ONE;
+    assert!(restarted.handle().credit_deposit(conflict).await.is_err());
+    restarted.stop().await?;
+    assert_eq!(received.try_iter().count(), 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn deposit_output_failure_republishes_same_event_after_recovery() -> Result<()> {
+    let directory = Directory::new();
+    let store = initialize(&directory.0);
+    let mut engine = HighPerformanceEngine::new_bench();
+    let (sent, received) = bounded(10);
+    attach(&mut engine, store, move |batch, position| {
+        output::visit_events(batch, position, |index, payload| {
+            sent.send(payload).unwrap();
+            Err(output::DeliveryError {
+                next_event: index,
+                reason: "시험용 브로커 응답 유실".into(),
+            })
+        })
+    });
+    let credit = deposit_credit(uuid::Uuid::new_v4(), 3, Decimal::ONE);
+    engine.handle().credit_deposit(credit.clone()).await?;
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while engine.handle().is_accepting() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
+    assert!(engine.stop().await.is_err());
+    let original = received.try_recv()?;
+    let store = Store::open(&directory.0)?;
+    assert_eq!(store.delivered()?, 0);
+    let mut restarted = HighPerformanceEngine::new_bench();
+    let (sent, received) = bounded(10);
+    attach(&mut restarted, store, move |batch, position| {
+        output::visit_events(batch, position, |_, payload| {
+            sent.send(payload).unwrap();
+            Ok(())
+        })
+    });
+    restarted.handle().credit_deposit(credit).await?;
+    restarted.stop().await?;
+    assert_eq!(received.try_recv()?, original);
+    assert!(received.try_recv().is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn deposit_journal_failure_never_acknowledges_or_publishes() -> Result<()> {
+    let directory = Directory::new();
+    let store = initialize(&directory.0);
+    store.connection.execute_batch("CREATE TRIGGER reject_deposit_write BEFORE INSERT ON records BEGIN SELECT RAISE(ABORT,'시험용 기록 실패'); END;")?;
+    let mut engine = HighPerformanceEngine::new_bench();
+    let (sent, received) = bounded(10);
+    attach(&mut engine, store, move |batch, position| {
+        output::visit_events(batch, position, |_, payload| {
+            sent.send(payload).unwrap();
+            Ok(())
+        })
+    });
+    assert!(engine
+        .handle()
+        .credit_deposit(deposit_credit(uuid::Uuid::new_v4(), 3, Decimal::ONE))
+        .await
+        .is_err());
+    assert!(engine.stop().await.is_err());
+    assert!(received.try_recv().is_err());
+    let store = Store::open(&directory.0)?;
+    assert_eq!(store.last_sequence()?, 0);
+    let (recovered, _) = store.recover()?;
+    assert!(recovered
+        .executor
+        .balance_cache()
+        .get_balance(3, "BTC")
+        .is_none());
+    Ok(())
+}
+
+#[test]
+fn deposit_failed_receipt_replays_as_failure_and_keeps_original_payload() -> Result<()> {
+    let directory = Directory::new();
+    let mut store = Store::open(&directory.0)?;
+    let mut state = seeded();
+    let maximum = Decimal::from_str_exact("999999999999999999999")?;
+    state
+        .executor
+        .balance_cache_mut()
+        .set_balance(3, "BTC", maximum, Decimal::ZERO);
+    store.initialize(&state)?;
+    let credit = deposit_credit(uuid::Uuid::new_v4(), 3, maximum);
+    let item = pending(&mut state, Command::CreditDeposit(credit.clone()));
+    assert!(matches!(item.outcome, Outcome::Failed(_)));
+    store.append(&[item], &mut 0)?;
+    let (mut recovered, _) = store.recover()?;
+    assert!(matches!(
+        apply(&mut recovered, &Command::CreditDeposit(credit.clone())),
+        Outcome::Failed(_)
+    ));
+    let mut changed = credit;
+    changed.amount = Decimal::ONE;
+    match apply(&mut recovered, &Command::CreditDeposit(changed)) {
+        Outcome::Failed(reason) => assert!(reason.contains("conflicts")),
+        _ => panic!("실패 원본 변경을 허용함"),
+    }
+    assert_eq!(
+        recovered
+            .executor
+            .balance_cache()
+            .get_balance(3, "BTC")
+            .unwrap()
+            .available,
+        maximum
+    );
+    Ok(())
+}

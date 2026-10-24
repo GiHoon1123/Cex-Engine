@@ -64,17 +64,24 @@ pub(super) fn engine_thread_loop(
             std::hint::spin_loop();
             continue;
         }
-        if let Ok(BalanceCommand::UpdateBalance {
-            user_id,
-            mint,
-            available_delta,
-            response,
-        }) = balances.try_recv()
-        {
-            let command = Command::Balance {
-                user_id,
-                mint,
-                delta: available_delta,
+        if let Ok(input) = balances.try_recv() {
+            let (command, response) = match input {
+                BalanceCommand::UpdateBalance {
+                    user_id,
+                    mint,
+                    available_delta,
+                    response,
+                } => (
+                    Command::Balance {
+                        user_id,
+                        mint,
+                        delta: available_delta,
+                    },
+                    response,
+                ),
+                BalanceCommand::CreditDeposit { credit, response } => {
+                    (Command::CreditDeposit(credit), response)
+                }
             };
             let outcome = journal::apply(&mut state, &command);
             publish(
