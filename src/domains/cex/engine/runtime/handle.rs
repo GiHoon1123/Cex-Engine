@@ -25,22 +25,28 @@ pub struct EngineHandle {
 
 impl EngineHandle {
     /// 같은 입금 원본만 재시도한다. 성공 응답은 기존 기록 워커의 영속 커밋 뒤에만 도착한다.
-    pub async fn credit_deposit(&self, credit: super::DepositCredit) -> Result<()> {
+    pub async fn credit_deposit(
+        &self,
+        credit: super::DepositCredit,
+    ) -> std::result::Result<(), super::DepositCreditError> {
+        use super::DepositCreditError;
         let (sender, receiver) = oneshot::channel();
         self.send_balance(BalanceCommand::CreditDeposit {
             credit,
             response: sender,
-        })?;
+        })
+        .map_err(|_| DepositCreditError::NotAccepted)?;
+        // 큐 진입 뒤에는 응답 유실/시간 초과를 거절로 바꾸지 않는다. 메모리 계산이나
+        // 저널 커밋이 이미 진행됐을 수 있으므로 금융 원본을 유지한 재확인만 허용한다.
         timeout(Duration::from_secs(3), receiver)
             .await
-            .map_err(|_| {
-                anyhow::anyhow!("Deposit outcome unknown; retry the same deposit id and content")
-            })?
-            .map_err(|_| {
-                anyhow::anyhow!(
-                    "Deposit journal response unavailable; retry the same deposit id and content"
-                )
-            })?
+            .map_err(|_| DepositCreditError::OutcomeUnknown)?
+            .map_err(|_| DepositCreditError::OutcomeUnknown)?
+            // 기록 워커의 finish는 커밋 뒤에만 호출된다. 계산 거절도 저장에 실패하면
+            // 이 분기에 도달하지 않고 위의 응답 유실로 처리된다.
+            .map_err(|error| DepositCreditError::Rejected {
+                reason: error.to_string(),
+            })
     }
     /// 닫힘은 정상 정지 또는 출력 실패로 더 이상 명령을 실행하지 않음을 뜻한다.
     /// 브로커 연결이나 프로세스 장애 복구 가능성 전체를 검증하는 상태는 아니다.
@@ -399,4 +405,75 @@ mod ownership_handle_tests {
             .contains("closed"));
         assert!(handle.update_balance(1, "SOL", Decimal::ONE).await.is_err());
     }
+    fn deposit() -> super::super::DepositCredit {
+        super::super::DepositCredit {
+            deposit_id: uuid::Uuid::new_v4(),
+            user_id: 3,
+            asset: "BTC".into(),
+            amount: Decimal::ONE,
+        }
+    }
+
+    #[tokio::test]
+    async fn deposit_full_input_queue_is_not_accepted_without_consuming_existing_command() {
+        let (handle, _orders, balances) = handle(1);
+        handle
+            .balance_tx
+            .try_send(BalanceCommand::UpdateBalance {
+                user_id: 9,
+                mint: "BTC".into(),
+                available_delta: Decimal::ONE,
+                response: oneshot::channel().0,
+            })
+            .unwrap();
+        let result = timeout(Duration::from_millis(100), handle.credit_deposit(deposit()))
+            .await
+            .expect("포화 큐에서 요청이 대기함");
+        assert!(matches!(
+            result,
+            Err(super::super::DepositCreditError::NotAccepted)
+        ));
+        assert_eq!(balances.len(), 1);
+        assert!(matches!(
+            balances.try_recv().unwrap(),
+            BalanceCommand::UpdateBalance { user_id: 9, .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn deposit_closed_or_disconnected_input_is_not_accepted() {
+        let (handle, _orders, balances) = handle(1);
+        drop(balances);
+        assert!(matches!(
+            handle.credit_deposit(deposit()).await,
+            Err(super::super::DepositCreditError::NotAccepted)
+        ));
+        let (handle, _orders, balances) = self::handle(1);
+        handle.closed.store(true, Ordering::Release);
+        assert!(matches!(
+            handle.credit_deposit(deposit()).await,
+            Err(super::super::DepositCreditError::NotAccepted)
+        ));
+        assert!(balances.is_empty());
+    }
+
+    #[tokio::test]
+    async fn deposit_lost_response_after_queue_admission_is_outcome_unknown() -> Result<()> {
+        let (handle, _orders, balances) = handle(1);
+        let task = tokio::spawn(async move { handle.credit_deposit(deposit()).await });
+        timeout(Duration::from_secs(1), async {
+            while balances.is_empty() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await?;
+        // 명령은 이미 소비됐다. 응답 채널 소유자를 잃어도 확정 거절로 간주하지 않는다.
+        drop(balances.try_recv()?);
+        assert!(matches!(
+            task.await?,
+            Err(super::super::DepositCreditError::OutcomeUnknown)
+        ));
+        Ok(())
+    }
+
 }

@@ -1334,3 +1334,150 @@ fn deposit_failed_receipt_replays_as_failure_and_keeps_original_payload() -> Res
     );
     Ok(())
 }
+
+
+/// 실제 코어가 만든 명령을 보류해 응답과 디스크 커밋의 순서를 시험에서 제어한다.
+/// 제품 코드의 기록 워커/출력 포화 계약을 교체하는 실행 경로는 아니다.
+fn deposit_gated_core(
+    state: EngineState,
+) -> (HighPerformanceEngine, crossbeam::channel::Receiver<Pending>) {
+    let mut engine = HighPerformanceEngine::new_bench();
+    let (sender, receiver) = bounded(4);
+    engine.journal_rx = Some(receiver.clone());
+    engine.state = None;
+    let orders = engine.order_rx.clone();
+    let balances = engine.balance_rx.clone();
+    let running = engine.running.clone();
+    let closed = engine.handle.closed.clone();
+    running.store(true, Ordering::Release);
+    engine.engine_thread = Some(thread::spawn(move || {
+        threads::engine_thread_loop(orders, balances, Some(sender), state, running, closed)
+    }));
+    (engine, receiver)
+}
+
+#[tokio::test]
+async fn deposit_typed_rejection_waits_for_commit_and_survives_restart() -> Result<()> {
+    use super::super::DepositCreditError;
+    let directory = Directory::new();
+    let mut state = seeded();
+    let maximum = Decimal::from_str_exact("999999999999999999999")?;
+    state
+        .executor
+        .balance_cache_mut()
+        .set_balance(3, "BTC", maximum, Decimal::ZERO);
+    let mut store = Store::open(&directory.0)?;
+    store.initialize(&state)?;
+    let (mut engine, receiver) = deposit_gated_core(state);
+    let handle = engine.handle();
+    let credit = deposit_credit(uuid::Uuid::new_v4(), 3, maximum);
+    let original = credit.clone();
+    let task = tokio::spawn(async move { handle.credit_deposit(credit).await });
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        while receiver.is_empty() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
+    assert!(!task.is_finished(), "거절도 영속 확정 전에 공개하면 안 됨");
+    let group: Vec<_> = receiver.try_iter().collect();
+    assert!(matches!(group[0].outcome, Outcome::Failed(_)));
+    store.append(&group, &mut 0)?;
+    for item in group {
+        item.finish();
+    }
+    let reason = match task.await? {
+        Err(DepositCreditError::Rejected { reason }) => reason,
+        _ => panic!("확정 거절이 아닌 응답"),
+    };
+    engine.stop().await?;
+    let mut restarted = HighPerformanceEngine::new_bench();
+    attach(&mut restarted, store, |_, _| Ok(()));
+    match restarted.handle().credit_deposit(original).await {
+        Err(DepositCreditError::Rejected { reason: repeated }) => assert_eq!(reason, repeated),
+        _ => panic!("재시작 후 거절 변경"),
+    };
+    assert_eq!(restarted.handle().get_balance(3, "BTC").await?.0, maximum);
+    restarted.stop().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn deposit_timeout_can_commit_later_and_retry_still_credits_once() -> Result<()> {
+    use super::super::DepositCreditError;
+    let directory = Directory::new();
+    let mut store = initialize(&directory.0);
+    let (mut engine, receiver) = deposit_gated_core(seeded());
+    let handle = engine.handle();
+    let credit = deposit_credit(uuid::Uuid::new_v4(), 3, Decimal::ONE);
+    let original = credit.clone();
+    let task = tokio::spawn(async move { handle.credit_deposit(credit).await });
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        while receiver.is_empty() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
+    assert!(matches!(
+        task.await?,
+        Err(DepositCreditError::OutcomeUnknown)
+    ));
+    assert_eq!(store.last_sequence()?, 0);
+    // 호출자가 시간 초과를 받은 뒤 실제 저널 커밋이 성공할 수 있다. 원본을 새 입금으로 대체하지 않는다.
+    let group: Vec<_> = receiver.try_iter().collect();
+    store.append(&group, &mut 0)?;
+    for item in group {
+        item.finish();
+    }
+    engine.stop().await?;
+    let mut restarted = HighPerformanceEngine::new_bench();
+    let (sent, received) = bounded(10);
+    attach(&mut restarted, store, move |batch, position| {
+        output::visit_events(batch, position, |_, payload| {
+            sent.send(payload).unwrap();
+            Ok(())
+        })
+    });
+    restarted.handle().credit_deposit(original).await?;
+    assert_eq!(
+        restarted.handle().get_balance(3, "BTC").await?.0,
+        Decimal::ONE
+    );
+    restarted.stop().await?;
+    assert_eq!(
+        received.try_iter().count(),
+        1,
+        "응답 유실 재시도에서 금융 이벤트 중복"
+    );
+    let recovered = Store::open(&directory.0)?.recover()?.0;
+    assert_eq!(
+        recovered
+            .executor
+            .balance_cache()
+            .get_balance(3, "BTC")
+            .unwrap()
+            .available,
+        Decimal::ONE
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn deposit_calculation_rejection_with_failed_journal_is_outcome_unknown() -> Result<()> {
+    use super::super::DepositCreditError;
+    let directory = Directory::new();
+    let store = initialize(&directory.0);
+    store.connection.execute_batch("CREATE TRIGGER reject_deposit_write BEFORE INSERT ON records BEGIN SELECT RAISE(ABORT,'격리 거절 기록 장애'); END;")?;
+    let mut engine = HighPerformanceEngine::new_bench();
+    attach(&mut engine, store, |_, _| panic!("거절에서 금융 출력 발생"));
+    let credit = deposit_credit(uuid::Uuid::new_v4(), 3, -Decimal::ONE);
+    assert!(matches!(
+        engine.handle().credit_deposit(credit).await,
+        Err(DepositCreditError::OutcomeUnknown)
+    ));
+    assert!(engine.stop().await.is_err());
+    let store = Store::open(&directory.0)?;
+    assert_eq!(store.last_sequence()?, 0);
+    assert!(store.recover()?.0.deposit_receipts.is_empty());
+    Ok(())
+}

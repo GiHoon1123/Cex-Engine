@@ -29,7 +29,7 @@ pub use balance_commands::BalanceCommand;
 
 mod journal;
 mod deposit;
-pub use deposit::DepositCredit;
+pub use deposit::{DepositCredit, DepositCreditError};
 
 pub(crate) mod market;
 

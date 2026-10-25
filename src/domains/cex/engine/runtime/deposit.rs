@@ -15,6 +15,19 @@ pub struct DepositCredit {
     pub asset: String,
     pub amount: Decimal,
 }
+/// 오류 문구를 파싱하지 않고 이번 전송/영속 거절/결과 불명을 구분한다.
+/// 이번 전송이 접수되지 않아도 과거 같은 입금의 실행 여부까지 부정하지는 않는다.
+#[derive(Debug, thiserror::Error)]
+pub enum DepositCreditError {
+    #[error("이번 입금 명령 전송이 접수되지 않았습니다")]
+    NotAccepted,
+    #[error("입금 결과를 확정할 수 없습니다. 같은 식별자와 금융 내용으로 재확인하세요")]
+    OutcomeUnknown,
+    /// 이 변형은 저널 커밋 이후 받은 거절에만 사용한다. 이유는 설명용이며 분기에 사용하지 않는다.
+    #[error("자체 저널에 확정된 입금 거절: {reason}")]
+    Rejected { reason: String },
+}
+
 /// 정상 형식의 명령은 계산 실패도 보존한다. 실패 뒤의 중복을 성공으로 바꾸지 않는다.
 pub(super) struct DepositReceipt {
     original: DepositCredit,
