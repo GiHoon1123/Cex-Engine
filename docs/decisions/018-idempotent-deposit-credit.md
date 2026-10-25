@@ -38,7 +38,7 @@ DepositCredit은 deposit_id, user_id, asset, amount를 받는다. 코어는 체�
 
 ## 실제 코드와 필요한 문법
 
-출처: [deposit.rs](../../src/domains/cex/engine/runtime/deposit.rs#L28), 현재 소스의 부분 발췌.
+출처: [deposit.rs](../../src/domains/cex/engine/runtime/deposit.rs#L41), 현재 소스의 부분 발췌.
 
 ```rust
     if let Some(receipt) = state.deposit_receipts.get(&credit.deposit_id) {
@@ -58,7 +58,7 @@ DepositCredit은 deposit_id, user_id, asset, amount를 받는다. 코어는 체�
 
 &mut EngineState는 이 호출 동안 상태에 대한 독점 변경 접근이다. TypeScript 객체 참조처럼 여러 작업에 공유한 뒤 락을 잡는 구조가 아니다. Option의 Some이면 이전 원본을 대조하고, 성공 중복은 Ok(None)으로 새 출력을 만들지 않는다. 이전 실패는 같은 사유로 다시 실패한다.
 
-출처: [deposit.rs](../../src/domains/cex/engine/runtime/deposit.rs#L60), 현재 소스의 부분 발췌.
+출처: [deposit.rs](../../src/domains/cex/engine/runtime/deposit.rs#L73), 현재 소스의 부분 발췌.
 
 ```rust
         let next = amount::add(old, credit.amount)?;
@@ -75,19 +75,20 @@ DepositCredit은 deposit_id, user_id, asset, amount를 받는다. 코어는 체�
 출처: [handle.rs](../../src/domains/cex/engine/runtime/handle.rs#L28), 현재 소스의 부분 발췌.
 
 ```rust
-    pub async fn credit_deposit(&self, credit: super::DepositCredit) -> Result<()> {
+    pub async fn credit_deposit(
+        &self,
+        credit: super::DepositCredit,
+    ) -> std::result::Result<(), super::DepositCreditError> {
+        use super::DepositCreditError;
         let (sender, receiver) = oneshot::channel();
         self.send_balance(BalanceCommand::CreditDeposit {
             credit,
             response: sender,
-        })?;
+        })
+        .map_err(|_| DepositCreditError::NotAccepted)?;
+        // 큐 진입 뒤에는 응답 유실/시간 초과를 거절로 바꾸지 않는다. 메모리 계산이나
+        // 저널 커밋이 이미 진행됐을 수 있으므로 금융 원본을 유지한 재확인만 허용한다.
         timeout(Duration::from_secs(3), receiver)
-            .await
-            .map_err(|_| {
-                anyhow::anyhow!("Deposit outcome unknown; retry the same deposit id and content")
-            })?
-            .map_err(|_| {
-                anyhow::anyhow!(
 ```
 
 요청의 oneshot 송신 권한을 명령과 함께 넘긴다. async 요청 작업이 영속 응답을 기다리지만 코어 스레드는 기록 워커로 응답 권한을 이전한 뒤 다음 계산을 수행한다. 시간 초과는 이미 반영된 명령을 취소하거나 되돌리지 않는다.
@@ -130,3 +131,5 @@ python3 scripts/verify_order_safety.py
 
 - [구현 404e5a9](https://github.com/GiHoon1123/Cex-Engine/commit/404e5a9c23049b3213ede919dfba8d58760a5bee)
 - [격리 실행/개별 테스트 증적](../reference/018-idempotent-deposit-credit-verification-2026-10-25.json)
+
+현행092 연결: [020 명시적 입금 오류](020-typed-deposit-outcomes.md)에서 핸들 반환 타입을 갱신했다. 위 발췌는 현행 코드이며075 당시 실행과 구분한다.075의 같은 줄 기반 집계147/160은 보존 로그 재집계에서 고유151/실행164로 정정됐다. 과거 JSON 원본은 유지한다.

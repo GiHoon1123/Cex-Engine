@@ -33,3 +33,5 @@ Cex-Engine에서 python3 scripts/verify_order_safety.py를 실행했다. 소유 
 - [엔진 구현417613a](https://github.com/GiHoon1123/Cex-Engine/commit/417613a)
 - [플랫폼 구현0e937b5](https://github.com/GiHoon1123/Cex-Platform-Service/commit/0e937b5)
 - [전체 실패/수정/최종 증적](../../../Cex-Platform-Service/docs/reference/076-remove-retired-balance-sync-verification-2026-10-25.json)
+
+092 집계 정정: 당시 고유148/실행161은 외부 로그 끼어들기로 시작 시험4개가 빠진 값이다. 보존 로그의 실제 고유152/실행165 통과를 [020 정정 기록](020-typed-deposit-outcomes.md)에서 확인한다.076 제품 변경이나 과거 증적 JSON을 바꾸지 않았다.

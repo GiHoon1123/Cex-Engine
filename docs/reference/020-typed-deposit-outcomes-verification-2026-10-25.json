@@ -1,0 +1,1276 @@
+{
+  "cycle": 92,
+  "implementation_commit": "3e890cf8c9eba604c4bef95fe5bd8c79fed4d10b",
+  "parser_commit": "324d8be",
+  "rust": {
+    "container": "cex-order-safety-c561e7558822",
+    "checks": [
+      {
+        "case": "service-identity",
+        "exit": 0,
+        "tests": {
+          "tests": 3,
+          "failed": 0,
+          "ignored": 0,
+          "cases": [
+            "shared::service_identity::tests::service_and_audit_keys_are_independent",
+            "shared::service_identity::tests::service_identity_rejects_prefix_suffix_and_changed_byte",
+            "shared::service_identity::tests::service_key_limits_are_checked_before_use"
+          ]
+        }
+      },
+      {
+        "case": "audit",
+        "exit": 0,
+        "tests": {
+          "tests": 4,
+          "failed": 0,
+          "ignored": 0,
+          "cases": [
+            "shared::service_identity::tests::service_and_audit_keys_are_independent",
+            "domains::cex::engine::runtime::audit::tests::audit_http_authentication_bounds_and_capacity_fail_closed",
+            "domains::cex::engine::runtime::audit::tests::audit_reads_commits_and_fixed_cut_without_core_or_platform_database",
+            "domains::cex::engine::runtime::audit::tests::audit_rejects_corruption_missing_file_and_wrong_engine_without_mutation"
+          ]
+        }
+      },
+      {
+        "case": "cancel-boundary",
+        "exit": 0,
+        "tests": {
+          "tests": 1,
+          "failed": 0,
+          "ignored": 0,
+          "cases": [
+            "domains::cex::services::order_service::cancellation_boundary_tests::cancellation_uses_owned_core_without_platform_database"
+          ]
+        }
+      },
+      {
+        "case": "market",
+        "exit": 0,
+        "tests": {
+          "tests": 5,
+          "failed": 0,
+          "ignored": 0,
+          "cases": [
+            "domains::cex::engine::runtime::market::tests::market_projection_aggregates_beyond_one_account_limit_without_rounding",
+            "domains::cex::engine::runtime::market::tests::market_projection_skips_duplicates_and_rejections_and_preserves_other_pairs",
+            "domains::cex::engine::runtime::market::tests::market_projection_market_buy_never_leaves_resting_budget",
+            "domains::cex::engine::runtime::market::tests::market_projection_tracks_real_partial_fill_cancel_and_replay",
+            "domains::cex::engine::runtime::market::tests::market_projection_depth_is_sorted_bounded_and_promotes_hidden_levels"
+          ]
+        }
+      },
+      {
+        "case": "service-startup",
+        "exit": 0,
+        "tests": {
+          "tests": 1,
+          "failed": 0,
+          "ignored": 0,
+          "cases": [
+            "invalid_audit_identity_fails_before_journal_creation"
+          ]
+        }
+      },
+      {
+        "case": "boundary",
+        "exit": 0,
+        "tests": {
+          "tests": 2,
+          "failed": 0,
+          "ignored": 0,
+          "cases": [
+            "engine_has_no_external_market_websocket_client_dependency",
+            "engine_does_not_own_a_trading_bot"
+          ]
+        }
+      },
+      {
+        "case": "journal",
+        "exit": 0,
+        "tests": {
+          "tests": 39,
+          "failed": 0,
+          "ignored": 0,
+          "cases": [
+            "domains::cex::engine::runtime::engine::journal_tests::deposit_once_preserves_locked_balance_and_duplicate_has_no_financial_output",
+            "domains::cex::engine::runtime::engine::journal_tests::deposit_identifier_cannot_change_user_asset_or_amount",
+            "domains::cex::engine::runtime::engine::journal_tests::invalid_deposit_never_creates_account_or_consumes_identifier",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_full_queue_preserves_input_and_does_not_confirm_uncommitted_order",
+            "domains::cex::engine::runtime::engine::journal_tests::deposit_failed_receipt_replays_as_failure_and_keeps_original_payload",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_failed_balance_delta_preserves_original_and_replays_rejection",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_conflicting_order_id_is_recorded_without_second_execution",
+            "domains::cex::engine::runtime::engine::journal_tests::deposit_typed_rejection_waits_for_commit_and_survives_restart",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_fee_amount_mismatch_blocks_recovery_even_with_valid_checksum",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_commit_failure_closes_input_and_never_replies_success",
+            "domains::cex::engine::runtime::engine::journal_tests::deposit_journal_failure_never_acknowledges_or_publishes",
+            "domains::cex::engine::runtime::engine::journal_tests::deposit_calculation_rejection_with_failed_journal_is_outcome_unknown",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_ioc_completion_failure_keeps_cursor_and_identical_retry",
+            "domains::cex::engine::runtime::engine::journal_tests::deposit_output_failure_republishes_same_event_after_recovery",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_fee_results_replay_and_duplicate_without_second_charge",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_kafka_cannot_overtake_durable_watermark",
+            "domains::cex::engine::runtime::engine::journal_tests::deposit_real_worker_concurrent_retries_and_restart_credit_once",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_process_ownership_rejects_second_owner_and_releases_on_drop",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_ioc_contract_rejects_previous_fee_version_without_mutation",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_lost_delivery_cursor_republishes_same_identity_timestamp_and_payload",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_market_failure_keeps_cursor_and_replays_identical_snapshot",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_multiple_makers_restore_fifo_and_remaining_order_exactly",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_kafka_failure_keeps_durable_result_for_same_event_republication",
+            "domains::cex::engine::runtime::engine::journal_tests::valid_deposit_overflow_keeps_original_and_repeated_failure",
+            "domains::cex::engine::runtime::journal::store::checksum_tests::journal_checksum_rejects_changed_payload_before_decode",
+            "domains::cex::engine::runtime::journal::store::checksum_tests::journal_sha256_binary_checksum_is_unchanged",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_rejection_output_failure_keeps_cursor_and_identical_original",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_rejection_contract_blocks_version_three_without_rewriting",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_old_fee_contract_is_rejected_without_rewriting_history",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_market_budget_and_ioc_remainder_replay_exactly",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_ioc_zero_fill_and_partial_completion_replay_without_second_refund",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_response_waits_for_commit_while_core_keeps_processing",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_unsupported_schema_blocks_without_rewriting_existing_file",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_process_exit_during_uncommitted_write_preserves_last_commit",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_rejection_preserves_original_and_restart_duplicate_has_no_second_effect",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_corruption_gap_result_mismatch_and_cursor_ahead_block_recovery",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_standard_restart_needs_no_platform_database_and_missing_log_is_blocked",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_replays_partial_fill_cancel_balance_and_duplicate_commands",
+            "domains::cex::engine::runtime::engine::journal_tests::deposit_timeout_can_commit_later_and_retry_still_credits_once"
+          ]
+        }
+      },
+      {
+        "case": "deposit",
+        "exit": 0,
+        "tests": {
+          "tests": 14,
+          "failed": 0,
+          "ignored": 0,
+          "cases": [
+            "domains::cex::engine::runtime::engine::journal_tests::deposit_identifier_cannot_change_user_asset_or_amount",
+            "domains::cex::engine::runtime::engine::journal_tests::deposit_once_preserves_locked_balance_and_duplicate_has_no_financial_output",
+            "domains::cex::engine::runtime::engine::journal_tests::valid_deposit_overflow_keeps_original_and_repeated_failure",
+            "domains::cex::engine::runtime::engine::journal_tests::invalid_deposit_never_creates_account_or_consumes_identifier",
+            "domains::cex::engine::runtime::handle::ownership_handle_tests::deposit_closed_or_disconnected_input_is_not_accepted",
+            "domains::cex::engine::runtime::handle::ownership_handle_tests::deposit_full_input_queue_is_not_accepted_without_consuming_existing_command",
+            "domains::cex::engine::runtime::handle::ownership_handle_tests::deposit_lost_response_after_queue_admission_is_outcome_unknown",
+            "domains::cex::engine::runtime::engine::journal_tests::deposit_failed_receipt_replays_as_failure_and_keeps_original_payload",
+            "domains::cex::engine::runtime::engine::journal_tests::deposit_calculation_rejection_with_failed_journal_is_outcome_unknown",
+            "domains::cex::engine::runtime::engine::journal_tests::deposit_journal_failure_never_acknowledges_or_publishes",
+            "domains::cex::engine::runtime::engine::journal_tests::deposit_typed_rejection_waits_for_commit_and_survives_restart",
+            "domains::cex::engine::runtime::engine::journal_tests::deposit_output_failure_republishes_same_event_after_recovery",
+            "domains::cex::engine::runtime::engine::journal_tests::deposit_real_worker_concurrent_retries_and_restart_credit_once",
+            "domains::cex::engine::runtime::engine::journal_tests::deposit_timeout_can_commit_later_and_retry_still_credits_once"
+          ]
+        }
+      },
+      {
+        "case": "output",
+        "exit": 0,
+        "tests": {
+          "tests": 6,
+          "failed": 0,
+          "ignored": 0,
+          "cases": [
+            "domains::cex::engine::runtime::engine::output_tests::output_cancel_failure_preserves_order_and_success_updates_counter",
+            "domains::cex::engine::runtime::engine::output_tests::output_cancel_invalid_book_entry_is_rejected_before_unlock",
+            "routes::tests::output_failure_closed_handle_reports_unavailable_health",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_rejection_output_failure_keeps_cursor_and_identical_original",
+            "domains::cex::engine::runtime::engine::journal_tests::deposit_output_failure_republishes_same_event_after_recovery",
+            "shared::kafka::producer::tests::output_kafka_delivery_failure_is_not_reported_as_success"
+          ]
+        }
+      },
+      {
+        "case": "ownership",
+        "exit": 0,
+        "tests": {
+          "tests": 9,
+          "failed": 0,
+          "ignored": 0,
+          "cases": [
+            "domains::cex::engine::runtime::handle::ownership_handle_tests::deposit_full_input_queue_is_not_accepted_without_consuming_existing_command",
+            "domains::cex::engine::runtime::handle::ownership_handle_tests::deposit_closed_or_disconnected_input_is_not_accepted",
+            "domains::cex::engine::runtime::handle::ownership_handle_tests::ownership_handle_rejects_closed_and_disconnected_channels",
+            "domains::cex::engine::runtime::handle::ownership_handle_tests::ownership_handle_queries_enter_queue_without_waiting_for_other_reply",
+            "domains::cex::engine::runtime::handle::ownership_handle_tests::ownership_handle_all_inputs_reject_full_queues_without_blocking",
+            "domains::cex::engine::runtime::handle::ownership_handle_tests::deposit_lost_response_after_queue_admission_is_outcome_unknown",
+            "domains::cex::engine::runtime::engine::journal_tests::journal_process_ownership_rejects_second_owner_and_releases_on_drop",
+            "domains::cex::engine::runtime::engine::ownership_tests::ownership_worker_failure_preserves_orderbook_and_balance",
+            "domains::cex::engine::runtime::engine::ownership_tests::ownership_worker_moves_state_and_matches_direct_core_results"
+          ]
+        }
+      },
+      {
+        "case": "request",
+        "exit": 0,
+        "tests": {
+          "tests": 3,
+          "failed": 0,
+          "ignored": 0,
+          "cases": [
+            "domains::cex::models::order::decimal_tests::request_decimals_require_strings_instead_of_json_floating_point",
+            "domains::cex::models::order::decimal_tests::request_decimals_preserve_exact_strings_and_optional_absence",
+            "domains::cex::models::order::decimal_tests::request_decimals_reject_precision_loss_in_every_amount_field"
+          ]
+        }
+      },
+      {
+        "case": "repository",
+        "exit": 0,
+        "tests": {
+          "tests": 2,
+          "failed": 0,
+          "ignored": 0,
+          "cases": [
+            "shared::database::repositories::cex::order_repository::exact_amount_tests::order_read_rejects_unrepresentable_database_amount_without_panic",
+            "shared::database::repositories::cex::order_repository::exact_amount_tests::order_reads_preserve_exact_amount_and_numeric_price_priority"
+          ]
+        }
+      },
+      {
+        "case": "settlement",
+        "exit": 0,
+        "tests": {
+          "tests": 41,
+          "failed": 0,
+          "ignored": 0,
+          "cases": [
+            "domains::cex::engine::balance_cache::settlement_tests::invalid_asset_pair_is_rejected_before_mutation",
+            "domains::cex::engine::balance_cache::settlement_tests::enormous_product_of_valid_operands_fails_without_panic",
+            "domains::cex::engine::balance_cache::settlement_tests::missing_buyer_asset_does_not_create_a_zero_row",
+            "domains::cex::engine::balance_cache::settlement_tests::first_asset_shortage_keeps_all_balances_unchanged",
+            "domains::cex::engine::balance_cache::settlement_tests::invalid_user_order_and_asset_identifiers_are_rejected",
+            "domains::cex::engine::balance_cache::settlement_tests::exact_valid_product_beyond_i128_intermediate_is_supported",
+            "domains::cex::engine::balance_cache::settlement_tests::decimal_precision_loss_on_last_recipient_rejects_all_changes",
+            "domains::cex::engine::balance_cache::settlement_tests::quote_multiplication_overflow_returns_error_without_panic",
+            "domains::cex::engine::balance_cache::settlement_tests::quote_finer_than_database_precision_is_not_rounded",
+            "domains::cex::engine::balance_cache::settlement_tests::missing_seller_asset_does_not_create_balances_or_move_quote",
+            "domains::cex::engine::balance_cache::settlement_tests::existing_balances_and_unrelated_assets_are_preserved",
+            "domains::cex::engine::balance_cache::settlement_tests::price_and_quantity_must_fit_current_database_precision",
+            "domains::cex::engine::balance_cache::settlement_tests::negative_and_zero_trade_values_are_rejected_before_mutation",
+            "domains::cex::engine::balance_cache::settlement_tests::reservation_result_precision_failure_preserves_cache",
+            "domains::cex::engine::balance_cache::settlement_tests::corrupt_negative_balance_is_not_hidden_or_normalized",
+            "domains::cex::engine::balance_cache::settlement_tests::second_asset_shortage_does_not_leave_first_transfer_applied",
+            "domains::cex::engine::balance_cache::settlement_tests::same_customer_keys_are_coalesced_without_losing_balances",
+            "domains::cex::engine::balance_cache::settlement_tests::second_recipient_overflow_does_not_apply_either_asset",
+            "domains::cex::engine::balance_cache::settlement_tests::smallest_supported_quote_is_transferred_exactly",
+            "domains::cex::engine::balance_cache::settlement_tests::successful_trade_moves_both_assets",
+            "domains::cex::engine::balance_cache::settlement_tests::valid_database_balance_cannot_overflow_on_either_recipient",
+            "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_fee_rounding_and_invalid_rates_are_explicit",
+            "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_invalid_fee_keeps_book_and_accounts_unchanged",
+            "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_fees_follow_each_order_and_preserve_prior_deductions",
+            "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_ioc_self_only_liquidity_returns_entire_reservation",
+            "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_ioc_refunds_unspendable_budget_dust",
+            "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_benchmark_uses_same_core_and_failure_boundary",
+            "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_candidate_planning_never_mutates_original_orderbook",
+            "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_failure_aborts_success_followups_for_limit_and_market",
+            "domains::cex::engine::runtime::engine::settlement_pipeline_tests::real_matching_pipeline_settles_both_assets_for_limit_and_market",
+            "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_refund_precision_failure_preserves_book_and_entire_cache",
+            "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_market_budget_uses_exact_quantity_and_returns_dust",
+            "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_price_time_priority_and_partial_maker_counters_are_preserved",
+            "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_partial_limit_buy_refunds_improvement_and_keeps_only_remaining_reservation",
+            "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_reservation_failure_creates_neither_market_nor_zero_balance",
+            "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_self_orders_do_not_rotate_or_disappear",
+            "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_no_liquidity_market_orders_return_entire_reservation",
+            "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_only_self_liquidity_finishes_without_mutation_or_infinite_loop",
+            "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_invalid_candidate_returns_error_without_panic_or_state_change",
+            "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_second_fill_failure_preserves_entire_book_and_cache",
+            "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_ioc_completes_full_partial_and_empty_buy_and_sell"
+          ]
+        }
+      },
+      {
+        "case": "receipt",
+        "exit": 0,
+        "tests": {
+          "tests": 19,
+          "failed": 0,
+          "ignored": 0,
+          "cases": [
+            "domains::cex::services::order_receipt::tests::acceptance_forces_synchronous_commit_even_if_session_default_is_off",
+            "domains::cex::services::order_receipt::tests::changed_command_or_owner_cannot_reuse_receipt",
+            "domains::cex::services::order_receipt::tests::closed_dispatch_channel_keeps_receipt_and_does_not_panic",
+            "domains::cex::services::order_receipt::tests::commit_failure_does_not_dispatch_or_report_acceptance",
+            "domains::cex::services::order_receipt::tests::concurrent_completion_keeps_duplicate_acceptance_valid",
+            "domains::cex::services::order_receipt::tests::concurrent_receipts_execute_exactly_one_order",
+            "domains::cex::services::order_receipt::tests::current_order_changes_do_not_change_existing_receipt",
+            "domains::cex::services::order_receipt::tests::existing_db_receipt_does_not_confirm_a_closed_executor",
+            "domains::cex::services::order_receipt::tests::http_contract_distinguishes_new_and_existing_receipt",
+            "domains::cex::services::order_receipt::tests::invalid_identifiers_and_fields_never_dispatch",
+            "domains::cex::services::order_receipt::tests::market_buy_preserves_exact_budget_and_null_amount",
+            "domains::cex::services::order_receipt::tests::missing_receipt_storage_returns_unavailable_without_sql_details",
+            "domains::cex::services::order_receipt::tests::platform_original_mismatch_is_rejected_before_receipt",
+            "domains::cex::services::order_receipt::tests::receipt_fee_rate_is_frozen_and_invalid_policy_is_rejected",
+            "domains::cex::services::order_receipt::tests::receipt_foreign_key_protects_platform_original",
+            "domains::cex::services::order_receipt::tests::receipt_is_durable_before_dispatch_and_duplicate_keeps_timestamp",
+            "domains::cex::services::order_receipt::tests::receipt_preserves_large_exact_amount_without_decoder_panic",
+            "domains::cex::services::order_receipt::tests::receipt_rejects_unrepresentable_original_without_panic",
+            "domains::cex::services::order_receipt::tests::unknown_or_terminal_platform_order_is_not_accepted"
+          ]
+        }
+      },
+      {
+        "case": "startup",
+        "exit": 0,
+        "tests": {
+          "tests": 18,
+          "failed": 0,
+          "ignored": 0,
+          "cases": [
+            "domains::cex::engine::runtime::engine::startup_tests::duplicate_start_does_not_reload_or_replace_running_state",
+            "domains::cex::engine::runtime::engine::startup_tests::empty_database_starts_and_stopped_instance_cannot_restart",
+            "domains::cex::engine::runtime::engine::startup_tests::failed_validation_does_not_publish_earlier_valid_rows",
+            "domains::cex::engine::runtime::engine::startup_tests::startup_preserves_exact_balances_with_terminal_order_history",
+            "domains::cex::engine::runtime::engine::startup_tests::startup_preserves_large_exact_fraction_without_decoder_panic",
+            "domains::cex::engine::runtime::engine::startup_tests::startup_propagates_database_inspection_failure",
+            "domains::cex::engine::runtime::engine::startup_tests::startup_reads_one_repeatable_read_readonly_snapshot",
+            "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_available_outside_current_storage_contract",
+            "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_duplicate_balance_rows",
+            "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_invalid_user_and_asset_identifiers",
+            "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_locked_balance_without_replay",
+            "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_negative_available_balance",
+            "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_negative_locked_balance",
+            "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_partial_unknown_and_null_order_statuses",
+            "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_pending_order_even_without_locked_balance",
+            "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_receipt_even_with_terminal_order",
+            "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_unrepresentable_decimal_without_panic",
+            "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_unrepresentable_decimal_without_panicking"
+          ]
+        }
+      },
+      {
+        "case": "reservation",
+        "exit": 0,
+        "tests": {
+          "tests": 1,
+          "failed": 0,
+          "ignored": 0,
+          "cases": [
+            "domains::cex::engine::runtime::engine::reservation_tests::platform_reservation_is_not_written_to_database_twice"
+          ]
+        }
+      },
+      {
+        "case": "routes",
+        "exit": 0,
+        "tests": {
+          "tests": 9,
+          "failed": 0,
+          "ignored": 0,
+          "cases": [
+            "routes::tests::output_failure_closed_handle_reports_unavailable_health",
+            "routes::tests::retired_wallet_routes_return_not_found",
+            "routes::tests::removed_auth_routes_return_not_found",
+            "routes::tests::cancellation_still_requires_user_id",
+            "routes::tests::retired_balance_delta_route_is_absent_for_all_service_identities",
+            "routes::tests::retired_swap_routes_return_not_found",
+            "routes::tests::trading_routes_still_validate_request_bodies",
+            "routes::tests::command_boundary_requires_platform_identity",
+            "routes::tests::health_check_remains_available"
+          ]
+        }
+      },
+      {
+        "case": "compile",
+        "exit": 0
+      },
+      {
+        "case": "build",
+        "exit": 0
+      }
+    ],
+    "tests": {
+      "executions": 177,
+      "unique": 158,
+      "failed": 0,
+      "ignored": 0
+    },
+    "cases": [
+      "domains::cex::engine::balance_cache::settlement_tests::corrupt_negative_balance_is_not_hidden_or_normalized",
+      "domains::cex::engine::balance_cache::settlement_tests::decimal_precision_loss_on_last_recipient_rejects_all_changes",
+      "domains::cex::engine::balance_cache::settlement_tests::enormous_product_of_valid_operands_fails_without_panic",
+      "domains::cex::engine::balance_cache::settlement_tests::exact_valid_product_beyond_i128_intermediate_is_supported",
+      "domains::cex::engine::balance_cache::settlement_tests::existing_balances_and_unrelated_assets_are_preserved",
+      "domains::cex::engine::balance_cache::settlement_tests::first_asset_shortage_keeps_all_balances_unchanged",
+      "domains::cex::engine::balance_cache::settlement_tests::invalid_asset_pair_is_rejected_before_mutation",
+      "domains::cex::engine::balance_cache::settlement_tests::invalid_user_order_and_asset_identifiers_are_rejected",
+      "domains::cex::engine::balance_cache::settlement_tests::missing_buyer_asset_does_not_create_a_zero_row",
+      "domains::cex::engine::balance_cache::settlement_tests::missing_seller_asset_does_not_create_balances_or_move_quote",
+      "domains::cex::engine::balance_cache::settlement_tests::negative_and_zero_trade_values_are_rejected_before_mutation",
+      "domains::cex::engine::balance_cache::settlement_tests::price_and_quantity_must_fit_current_database_precision",
+      "domains::cex::engine::balance_cache::settlement_tests::quote_finer_than_database_precision_is_not_rounded",
+      "domains::cex::engine::balance_cache::settlement_tests::quote_multiplication_overflow_returns_error_without_panic",
+      "domains::cex::engine::balance_cache::settlement_tests::reservation_result_precision_failure_preserves_cache",
+      "domains::cex::engine::balance_cache::settlement_tests::same_customer_keys_are_coalesced_without_losing_balances",
+      "domains::cex::engine::balance_cache::settlement_tests::second_asset_shortage_does_not_leave_first_transfer_applied",
+      "domains::cex::engine::balance_cache::settlement_tests::second_recipient_overflow_does_not_apply_either_asset",
+      "domains::cex::engine::balance_cache::settlement_tests::smallest_supported_quote_is_transferred_exactly",
+      "domains::cex::engine::balance_cache::settlement_tests::successful_trade_moves_both_assets",
+      "domains::cex::engine::balance_cache::settlement_tests::valid_database_balance_cannot_overflow_on_either_recipient",
+      "domains::cex::engine::runtime::audit::tests::audit_http_authentication_bounds_and_capacity_fail_closed",
+      "domains::cex::engine::runtime::audit::tests::audit_reads_commits_and_fixed_cut_without_core_or_platform_database",
+      "domains::cex::engine::runtime::audit::tests::audit_rejects_corruption_missing_file_and_wrong_engine_without_mutation",
+      "domains::cex::engine::runtime::engine::journal_tests::deposit_calculation_rejection_with_failed_journal_is_outcome_unknown",
+      "domains::cex::engine::runtime::engine::journal_tests::deposit_failed_receipt_replays_as_failure_and_keeps_original_payload",
+      "domains::cex::engine::runtime::engine::journal_tests::deposit_identifier_cannot_change_user_asset_or_amount",
+      "domains::cex::engine::runtime::engine::journal_tests::deposit_journal_failure_never_acknowledges_or_publishes",
+      "domains::cex::engine::runtime::engine::journal_tests::deposit_once_preserves_locked_balance_and_duplicate_has_no_financial_output",
+      "domains::cex::engine::runtime::engine::journal_tests::deposit_output_failure_republishes_same_event_after_recovery",
+      "domains::cex::engine::runtime::engine::journal_tests::deposit_real_worker_concurrent_retries_and_restart_credit_once",
+      "domains::cex::engine::runtime::engine::journal_tests::deposit_timeout_can_commit_later_and_retry_still_credits_once",
+      "domains::cex::engine::runtime::engine::journal_tests::deposit_typed_rejection_waits_for_commit_and_survives_restart",
+      "domains::cex::engine::runtime::engine::journal_tests::invalid_deposit_never_creates_account_or_consumes_identifier",
+      "domains::cex::engine::runtime::engine::journal_tests::journal_commit_failure_closes_input_and_never_replies_success",
+      "domains::cex::engine::runtime::engine::journal_tests::journal_conflicting_order_id_is_recorded_without_second_execution",
+      "domains::cex::engine::runtime::engine::journal_tests::journal_corruption_gap_result_mismatch_and_cursor_ahead_block_recovery",
+      "domains::cex::engine::runtime::engine::journal_tests::journal_failed_balance_delta_preserves_original_and_replays_rejection",
+      "domains::cex::engine::runtime::engine::journal_tests::journal_fee_amount_mismatch_blocks_recovery_even_with_valid_checksum",
+      "domains::cex::engine::runtime::engine::journal_tests::journal_fee_results_replay_and_duplicate_without_second_charge",
+      "domains::cex::engine::runtime::engine::journal_tests::journal_full_queue_preserves_input_and_does_not_confirm_uncommitted_order",
+      "domains::cex::engine::runtime::engine::journal_tests::journal_ioc_completion_failure_keeps_cursor_and_identical_retry",
+      "domains::cex::engine::runtime::engine::journal_tests::journal_ioc_contract_rejects_previous_fee_version_without_mutation",
+      "domains::cex::engine::runtime::engine::journal_tests::journal_ioc_zero_fill_and_partial_completion_replay_without_second_refund",
+      "domains::cex::engine::runtime::engine::journal_tests::journal_kafka_cannot_overtake_durable_watermark",
+      "domains::cex::engine::runtime::engine::journal_tests::journal_kafka_failure_keeps_durable_result_for_same_event_republication",
+      "domains::cex::engine::runtime::engine::journal_tests::journal_lost_delivery_cursor_republishes_same_identity_timestamp_and_payload",
+      "domains::cex::engine::runtime::engine::journal_tests::journal_market_budget_and_ioc_remainder_replay_exactly",
+      "domains::cex::engine::runtime::engine::journal_tests::journal_market_failure_keeps_cursor_and_replays_identical_snapshot",
+      "domains::cex::engine::runtime::engine::journal_tests::journal_multiple_makers_restore_fifo_and_remaining_order_exactly",
+      "domains::cex::engine::runtime::engine::journal_tests::journal_old_fee_contract_is_rejected_without_rewriting_history",
+      "domains::cex::engine::runtime::engine::journal_tests::journal_process_exit_during_uncommitted_write_preserves_last_commit",
+      "domains::cex::engine::runtime::engine::journal_tests::journal_process_ownership_rejects_second_owner_and_releases_on_drop",
+      "domains::cex::engine::runtime::engine::journal_tests::journal_rejection_contract_blocks_version_three_without_rewriting",
+      "domains::cex::engine::runtime::engine::journal_tests::journal_rejection_output_failure_keeps_cursor_and_identical_original",
+      "domains::cex::engine::runtime::engine::journal_tests::journal_rejection_preserves_original_and_restart_duplicate_has_no_second_effect",
+      "domains::cex::engine::runtime::engine::journal_tests::journal_replays_partial_fill_cancel_balance_and_duplicate_commands",
+      "domains::cex::engine::runtime::engine::journal_tests::journal_response_waits_for_commit_while_core_keeps_processing",
+      "domains::cex::engine::runtime::engine::journal_tests::journal_standard_restart_needs_no_platform_database_and_missing_log_is_blocked",
+      "domains::cex::engine::runtime::engine::journal_tests::journal_unsupported_schema_blocks_without_rewriting_existing_file",
+      "domains::cex::engine::runtime::engine::journal_tests::valid_deposit_overflow_keeps_original_and_repeated_failure",
+      "domains::cex::engine::runtime::engine::output_tests::output_cancel_failure_preserves_order_and_success_updates_counter",
+      "domains::cex::engine::runtime::engine::output_tests::output_cancel_invalid_book_entry_is_rejected_before_unlock",
+      "domains::cex::engine::runtime::engine::ownership_tests::ownership_worker_failure_preserves_orderbook_and_balance",
+      "domains::cex::engine::runtime::engine::ownership_tests::ownership_worker_moves_state_and_matches_direct_core_results",
+      "domains::cex::engine::runtime::engine::reservation_tests::platform_reservation_is_not_written_to_database_twice",
+      "domains::cex::engine::runtime::engine::settlement_pipeline_tests::real_matching_pipeline_settles_both_assets_for_limit_and_market",
+      "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_failure_aborts_success_followups_for_limit_and_market",
+      "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_fee_rounding_and_invalid_rates_are_explicit",
+      "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_fees_follow_each_order_and_preserve_prior_deductions",
+      "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_invalid_fee_keeps_book_and_accounts_unchanged",
+      "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_ioc_completes_full_partial_and_empty_buy_and_sell",
+      "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_ioc_refunds_unspendable_budget_dust",
+      "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_ioc_self_only_liquidity_returns_entire_reservation",
+      "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_benchmark_uses_same_core_and_failure_boundary",
+      "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_candidate_planning_never_mutates_original_orderbook",
+      "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_invalid_candidate_returns_error_without_panic_or_state_change",
+      "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_market_budget_uses_exact_quantity_and_returns_dust",
+      "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_no_liquidity_market_orders_return_entire_reservation",
+      "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_only_self_liquidity_finishes_without_mutation_or_infinite_loop",
+      "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_partial_limit_buy_refunds_improvement_and_keeps_only_remaining_reservation",
+      "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_price_time_priority_and_partial_maker_counters_are_preserved",
+      "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_refund_precision_failure_preserves_book_and_entire_cache",
+      "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_reservation_failure_creates_neither_market_nor_zero_balance",
+      "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_second_fill_failure_preserves_entire_book_and_cache",
+      "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_self_orders_do_not_rotate_or_disappear",
+      "domains::cex::engine::runtime::engine::startup_tests::duplicate_start_does_not_reload_or_replace_running_state",
+      "domains::cex::engine::runtime::engine::startup_tests::empty_database_starts_and_stopped_instance_cannot_restart",
+      "domains::cex::engine::runtime::engine::startup_tests::failed_validation_does_not_publish_earlier_valid_rows",
+      "domains::cex::engine::runtime::engine::startup_tests::startup_preserves_exact_balances_with_terminal_order_history",
+      "domains::cex::engine::runtime::engine::startup_tests::startup_preserves_large_exact_fraction_without_decoder_panic",
+      "domains::cex::engine::runtime::engine::startup_tests::startup_propagates_database_inspection_failure",
+      "domains::cex::engine::runtime::engine::startup_tests::startup_reads_one_repeatable_read_readonly_snapshot",
+      "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_available_outside_current_storage_contract",
+      "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_duplicate_balance_rows",
+      "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_invalid_user_and_asset_identifiers",
+      "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_locked_balance_without_replay",
+      "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_negative_available_balance",
+      "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_negative_locked_balance",
+      "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_partial_unknown_and_null_order_statuses",
+      "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_pending_order_even_without_locked_balance",
+      "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_receipt_even_with_terminal_order",
+      "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_unrepresentable_decimal_without_panic",
+      "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_unrepresentable_decimal_without_panicking",
+      "domains::cex::engine::runtime::handle::ownership_handle_tests::deposit_closed_or_disconnected_input_is_not_accepted",
+      "domains::cex::engine::runtime::handle::ownership_handle_tests::deposit_full_input_queue_is_not_accepted_without_consuming_existing_command",
+      "domains::cex::engine::runtime::handle::ownership_handle_tests::deposit_lost_response_after_queue_admission_is_outcome_unknown",
+      "domains::cex::engine::runtime::handle::ownership_handle_tests::ownership_handle_all_inputs_reject_full_queues_without_blocking",
+      "domains::cex::engine::runtime::handle::ownership_handle_tests::ownership_handle_queries_enter_queue_without_waiting_for_other_reply",
+      "domains::cex::engine::runtime::handle::ownership_handle_tests::ownership_handle_rejects_closed_and_disconnected_channels",
+      "domains::cex::engine::runtime::journal::store::checksum_tests::journal_checksum_rejects_changed_payload_before_decode",
+      "domains::cex::engine::runtime::journal::store::checksum_tests::journal_sha256_binary_checksum_is_unchanged",
+      "domains::cex::engine::runtime::market::tests::market_projection_aggregates_beyond_one_account_limit_without_rounding",
+      "domains::cex::engine::runtime::market::tests::market_projection_depth_is_sorted_bounded_and_promotes_hidden_levels",
+      "domains::cex::engine::runtime::market::tests::market_projection_market_buy_never_leaves_resting_budget",
+      "domains::cex::engine::runtime::market::tests::market_projection_skips_duplicates_and_rejections_and_preserves_other_pairs",
+      "domains::cex::engine::runtime::market::tests::market_projection_tracks_real_partial_fill_cancel_and_replay",
+      "domains::cex::models::order::decimal_tests::request_decimals_preserve_exact_strings_and_optional_absence",
+      "domains::cex::models::order::decimal_tests::request_decimals_reject_precision_loss_in_every_amount_field",
+      "domains::cex::models::order::decimal_tests::request_decimals_require_strings_instead_of_json_floating_point",
+      "domains::cex::services::order_receipt::tests::acceptance_forces_synchronous_commit_even_if_session_default_is_off",
+      "domains::cex::services::order_receipt::tests::changed_command_or_owner_cannot_reuse_receipt",
+      "domains::cex::services::order_receipt::tests::closed_dispatch_channel_keeps_receipt_and_does_not_panic",
+      "domains::cex::services::order_receipt::tests::commit_failure_does_not_dispatch_or_report_acceptance",
+      "domains::cex::services::order_receipt::tests::concurrent_completion_keeps_duplicate_acceptance_valid",
+      "domains::cex::services::order_receipt::tests::concurrent_receipts_execute_exactly_one_order",
+      "domains::cex::services::order_receipt::tests::current_order_changes_do_not_change_existing_receipt",
+      "domains::cex::services::order_receipt::tests::existing_db_receipt_does_not_confirm_a_closed_executor",
+      "domains::cex::services::order_receipt::tests::http_contract_distinguishes_new_and_existing_receipt",
+      "domains::cex::services::order_receipt::tests::invalid_identifiers_and_fields_never_dispatch",
+      "domains::cex::services::order_receipt::tests::market_buy_preserves_exact_budget_and_null_amount",
+      "domains::cex::services::order_receipt::tests::missing_receipt_storage_returns_unavailable_without_sql_details",
+      "domains::cex::services::order_receipt::tests::platform_original_mismatch_is_rejected_before_receipt",
+      "domains::cex::services::order_receipt::tests::receipt_fee_rate_is_frozen_and_invalid_policy_is_rejected",
+      "domains::cex::services::order_receipt::tests::receipt_foreign_key_protects_platform_original",
+      "domains::cex::services::order_receipt::tests::receipt_is_durable_before_dispatch_and_duplicate_keeps_timestamp",
+      "domains::cex::services::order_receipt::tests::receipt_preserves_large_exact_amount_without_decoder_panic",
+      "domains::cex::services::order_receipt::tests::receipt_rejects_unrepresentable_original_without_panic",
+      "domains::cex::services::order_receipt::tests::unknown_or_terminal_platform_order_is_not_accepted",
+      "domains::cex::services::order_service::cancellation_boundary_tests::cancellation_uses_owned_core_without_platform_database",
+      "engine_does_not_own_a_trading_bot",
+      "engine_has_no_external_market_websocket_client_dependency",
+      "invalid_audit_identity_fails_before_journal_creation",
+      "routes::tests::cancellation_still_requires_user_id",
+      "routes::tests::command_boundary_requires_platform_identity",
+      "routes::tests::health_check_remains_available",
+      "routes::tests::output_failure_closed_handle_reports_unavailable_health",
+      "routes::tests::removed_auth_routes_return_not_found",
+      "routes::tests::retired_balance_delta_route_is_absent_for_all_service_identities",
+      "routes::tests::retired_swap_routes_return_not_found",
+      "routes::tests::retired_wallet_routes_return_not_found",
+      "routes::tests::trading_routes_still_validate_request_bodies",
+      "shared::database::repositories::cex::order_repository::exact_amount_tests::order_read_rejects_unrepresentable_database_amount_without_panic",
+      "shared::database::repositories::cex::order_repository::exact_amount_tests::order_reads_preserve_exact_amount_and_numeric_price_priority",
+      "shared::kafka::producer::tests::output_kafka_delivery_failure_is_not_reported_as_success",
+      "shared::service_identity::tests::service_and_audit_keys_are_independent",
+      "shared::service_identity::tests::service_identity_rejects_prefix_suffix_and_changed_byte",
+      "shared::service_identity::tests::service_key_limits_are_checked_before_use"
+    ],
+    "container_removed": true
+  },
+  "parser_tests": {
+    "tests": 5,
+    "failed": 0,
+    "ignored": 0
+  },
+  "historical_recount": {
+    "75": {
+      "executions": 164,
+      "unique": 151,
+      "logs": [
+        {
+          "file": "review-rust-audit.log",
+          "sha256": "7fa057a9b58cf6cd2304faf723a6f6af41134b564ac01eda728aeefd113c57c7",
+          "tests": {
+            "tests": 4,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "shared::service_identity::tests::service_and_audit_keys_are_independent",
+              "domains::cex::engine::runtime::audit::tests::audit_http_authentication_bounds_and_capacity_fail_closed",
+              "domains::cex::engine::runtime::audit::tests::audit_rejects_corruption_missing_file_and_wrong_engine_without_mutation",
+              "domains::cex::engine::runtime::audit::tests::audit_reads_commits_and_fixed_cut_without_core_or_platform_database"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-boundary.log",
+          "sha256": "52aff04f7b7bb62293d37c293002e15a3ba4d3bde7ff822275607c26567c8e68",
+          "tests": {
+            "tests": 2,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "engine_has_no_external_market_websocket_client_dependency",
+              "engine_does_not_own_a_trading_bot"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-cancel-boundary.log",
+          "sha256": "e31efce7896f7690d533421000c12a64a3ec88b6df27a3c8c0b90590194bb0b8",
+          "tests": {
+            "tests": 1,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "domains::cex::services::order_service::cancellation_boundary_tests::cancellation_uses_owned_core_without_platform_database"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-deposit.log",
+          "sha256": "0268a824e80dc7a5d527c0d980a9f7e9b150c0c521854e6437a2bf06cf829f72",
+          "tests": {
+            "tests": 8,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "domains::cex::engine::runtime::engine::journal_tests::deposit_once_preserves_locked_balance_and_duplicate_has_no_financial_output",
+              "domains::cex::engine::runtime::engine::journal_tests::deposit_identifier_cannot_change_user_asset_or_amount",
+              "domains::cex::engine::runtime::engine::journal_tests::invalid_deposit_never_creates_account_or_consumes_identifier",
+              "domains::cex::engine::runtime::engine::journal_tests::valid_deposit_overflow_keeps_original_and_repeated_failure",
+              "domains::cex::engine::runtime::engine::journal_tests::deposit_failed_receipt_replays_as_failure_and_keeps_original_payload",
+              "domains::cex::engine::runtime::engine::journal_tests::deposit_journal_failure_never_acknowledges_or_publishes",
+              "domains::cex::engine::runtime::engine::journal_tests::deposit_output_failure_republishes_same_event_after_recovery",
+              "domains::cex::engine::runtime::engine::journal_tests::deposit_real_worker_concurrent_retries_and_restart_credit_once"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-journal.log",
+          "sha256": "b958cee3781c1d4648494b24d86a92022714079e212debc65ce0f5e1d4fb35f3",
+          "tests": {
+            "tests": 36,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "domains::cex::engine::runtime::engine::journal_tests::invalid_deposit_never_creates_account_or_consumes_identifier",
+              "domains::cex::engine::runtime::engine::journal_tests::deposit_identifier_cannot_change_user_asset_or_amount",
+              "domains::cex::engine::runtime::engine::journal_tests::deposit_once_preserves_locked_balance_and_duplicate_has_no_financial_output",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_full_queue_preserves_input_and_does_not_confirm_uncommitted_order",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_conflicting_order_id_is_recorded_without_second_execution",
+              "domains::cex::engine::runtime::engine::journal_tests::deposit_failed_receipt_replays_as_failure_and_keeps_original_payload",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_ioc_completion_failure_keeps_cursor_and_identical_retry",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_failed_balance_delta_preserves_original_and_replays_rejection",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_fee_amount_mismatch_blocks_recovery_even_with_valid_checksum",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_ioc_contract_rejects_previous_fee_version_without_mutation",
+              "domains::cex::engine::runtime::engine::journal_tests::deposit_journal_failure_never_acknowledges_or_publishes",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_commit_failure_closes_input_and_never_replies_success",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_process_ownership_rejects_second_owner_and_releases_on_drop",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_kafka_cannot_overtake_durable_watermark",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_fee_results_replay_and_duplicate_without_second_charge",
+              "domains::cex::engine::runtime::engine::journal_tests::deposit_output_failure_republishes_same_event_after_recovery",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_market_failure_keeps_cursor_and_replays_identical_snapshot",
+              "domains::cex::engine::runtime::engine::journal_tests::deposit_real_worker_concurrent_retries_and_restart_credit_once",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_lost_delivery_cursor_republishes_same_identity_timestamp_and_payload",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_ioc_zero_fill_and_partial_completion_replay_without_second_refund",
+              "domains::cex::engine::runtime::engine::journal_tests::valid_deposit_overflow_keeps_original_and_repeated_failure",
+              "domains::cex::engine::runtime::journal::store::checksum_tests::journal_checksum_rejects_changed_payload_before_decode",
+              "domains::cex::engine::runtime::journal::store::checksum_tests::journal_sha256_binary_checksum_is_unchanged",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_kafka_failure_keeps_durable_result_for_same_event_republication",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_multiple_makers_restore_fifo_and_remaining_order_exactly",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_old_fee_contract_is_rejected_without_rewriting_history",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_rejection_output_failure_keeps_cursor_and_identical_original",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_market_budget_and_ioc_remainder_replay_exactly",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_process_exit_during_uncommitted_write_preserves_last_commit",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_response_waits_for_commit_while_core_keeps_processing",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_unsupported_schema_blocks_without_rewriting_existing_file",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_rejection_contract_blocks_version_three_without_rewriting",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_rejection_preserves_original_and_restart_duplicate_has_no_second_effect",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_standard_restart_needs_no_platform_database_and_missing_log_is_blocked",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_corruption_gap_result_mismatch_and_cursor_ahead_block_recovery",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_replays_partial_fill_cancel_balance_and_duplicate_commands"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-market.log",
+          "sha256": "2c9edcf7e59167577c91c2d1c24194ebbe1bc73be8100668a1097147f5d39270",
+          "tests": {
+            "tests": 5,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "domains::cex::engine::runtime::market::tests::market_projection_aggregates_beyond_one_account_limit_without_rounding",
+              "domains::cex::engine::runtime::market::tests::market_projection_skips_duplicates_and_rejections_and_preserves_other_pairs",
+              "domains::cex::engine::runtime::market::tests::market_projection_market_buy_never_leaves_resting_budget",
+              "domains::cex::engine::runtime::market::tests::market_projection_tracks_real_partial_fill_cancel_and_replay",
+              "domains::cex::engine::runtime::market::tests::market_projection_depth_is_sorted_bounded_and_promotes_hidden_levels"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-output.log",
+          "sha256": "74c12599d215ded900d3861e2666eed884330beced62894dd134a8d447072a6d",
+          "tests": {
+            "tests": 6,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "domains::cex::engine::runtime::engine::output_tests::output_cancel_invalid_book_entry_is_rejected_before_unlock",
+              "domains::cex::engine::runtime::engine::output_tests::output_cancel_failure_preserves_order_and_success_updates_counter",
+              "routes::tests::output_failure_closed_handle_reports_unavailable_health",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_rejection_output_failure_keeps_cursor_and_identical_original",
+              "domains::cex::engine::runtime::engine::journal_tests::deposit_output_failure_republishes_same_event_after_recovery",
+              "shared::kafka::producer::tests::output_kafka_delivery_failure_is_not_reported_as_success"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-ownership.log",
+          "sha256": "02ddb1475c42db40a2b53fb120a4289913660456a00ab5ff96344755d70bb61b",
+          "tests": {
+            "tests": 6,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "domains::cex::engine::runtime::handle::ownership_handle_tests::ownership_handle_all_inputs_reject_full_queues_without_blocking",
+              "domains::cex::engine::runtime::handle::ownership_handle_tests::ownership_handle_queries_enter_queue_without_waiting_for_other_reply",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_process_ownership_rejects_second_owner_and_releases_on_drop",
+              "domains::cex::engine::runtime::handle::ownership_handle_tests::ownership_handle_rejects_closed_and_disconnected_channels",
+              "domains::cex::engine::runtime::engine::ownership_tests::ownership_worker_failure_preserves_orderbook_and_balance",
+              "domains::cex::engine::runtime::engine::ownership_tests::ownership_worker_moves_state_and_matches_direct_core_results"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-receipt.log",
+          "sha256": "faed967c5e9c036d0509bc594aa2cab26b20f778274e78aba073de37dded4381",
+          "tests": {
+            "tests": 19,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "domains::cex::services::order_receipt::tests::acceptance_forces_synchronous_commit_even_if_session_default_is_off",
+              "domains::cex::services::order_receipt::tests::changed_command_or_owner_cannot_reuse_receipt",
+              "domains::cex::services::order_receipt::tests::closed_dispatch_channel_keeps_receipt_and_does_not_panic",
+              "domains::cex::services::order_receipt::tests::commit_failure_does_not_dispatch_or_report_acceptance",
+              "domains::cex::services::order_receipt::tests::concurrent_completion_keeps_duplicate_acceptance_valid",
+              "domains::cex::services::order_receipt::tests::concurrent_receipts_execute_exactly_one_order",
+              "domains::cex::services::order_receipt::tests::current_order_changes_do_not_change_existing_receipt",
+              "domains::cex::services::order_receipt::tests::existing_db_receipt_does_not_confirm_a_closed_executor",
+              "domains::cex::services::order_receipt::tests::http_contract_distinguishes_new_and_existing_receipt",
+              "domains::cex::services::order_receipt::tests::invalid_identifiers_and_fields_never_dispatch",
+              "domains::cex::services::order_receipt::tests::market_buy_preserves_exact_budget_and_null_amount",
+              "domains::cex::services::order_receipt::tests::missing_receipt_storage_returns_unavailable_without_sql_details",
+              "domains::cex::services::order_receipt::tests::platform_original_mismatch_is_rejected_before_receipt",
+              "domains::cex::services::order_receipt::tests::receipt_fee_rate_is_frozen_and_invalid_policy_is_rejected",
+              "domains::cex::services::order_receipt::tests::receipt_foreign_key_protects_platform_original",
+              "domains::cex::services::order_receipt::tests::receipt_is_durable_before_dispatch_and_duplicate_keeps_timestamp",
+              "domains::cex::services::order_receipt::tests::receipt_preserves_large_exact_amount_without_decoder_panic",
+              "domains::cex::services::order_receipt::tests::receipt_rejects_unrepresentable_original_without_panic",
+              "domains::cex::services::order_receipt::tests::unknown_or_terminal_platform_order_is_not_accepted"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-repository.log",
+          "sha256": "d059b01e5235b5b71e43836b883fc35fccd26a66b9718aa3b7590b961689ae2e",
+          "tests": {
+            "tests": 2,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "shared::database::repositories::cex::order_repository::exact_amount_tests::order_read_rejects_unrepresentable_database_amount_without_panic",
+              "shared::database::repositories::cex::order_repository::exact_amount_tests::order_reads_preserve_exact_amount_and_numeric_price_priority"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-request.log",
+          "sha256": "eecd47a3b337ed88b1cb59c37afd4d405d97e8e77e6ff1ddeb98d66f807d8f33",
+          "tests": {
+            "tests": 3,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "domains::cex::models::order::decimal_tests::request_decimals_require_strings_instead_of_json_floating_point",
+              "domains::cex::models::order::decimal_tests::request_decimals_preserve_exact_strings_and_optional_absence",
+              "domains::cex::models::order::decimal_tests::request_decimals_reject_precision_loss_in_every_amount_field"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-reservation.log",
+          "sha256": "d328aee30eb0f6eb7a450887afc793fa3f0b11495a617977fde7ba88776a4ccd",
+          "tests": {
+            "tests": 1,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "domains::cex::engine::runtime::engine::reservation_tests::platform_reservation_is_not_written_to_database_twice"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-routes.log",
+          "sha256": "b3b99cbfafe8f41b5aa13aa880151353398741db7402b3b3315959c5c1cebc0d",
+          "tests": {
+            "tests": 8,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "routes::tests::output_failure_closed_handle_reports_unavailable_health",
+              "routes::tests::trading_routes_still_validate_request_bodies",
+              "routes::tests::retired_wallet_routes_return_not_found",
+              "routes::tests::command_boundary_requires_platform_identity",
+              "routes::tests::removed_auth_routes_return_not_found",
+              "routes::tests::cancellation_still_requires_user_id",
+              "routes::tests::retired_swap_routes_return_not_found",
+              "routes::tests::health_check_remains_available"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-service-identity.log",
+          "sha256": "7bdff0a2b41140f3fd770bec592f0c5920a4d9e36e086653d0c9de19854c17ba",
+          "tests": {
+            "tests": 3,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "shared::service_identity::tests::service_and_audit_keys_are_independent",
+              "shared::service_identity::tests::service_identity_rejects_prefix_suffix_and_changed_byte",
+              "shared::service_identity::tests::service_key_limits_are_checked_before_use"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-service-startup.log",
+          "sha256": "6518f49af63f388076b23951d1d94ac75ec6ede3e7bbadbc212f35c081a4fa9c",
+          "tests": {
+            "tests": 1,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "invalid_audit_identity_fails_before_journal_creation"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-settlement.log",
+          "sha256": "4db097b41f5baacc02d9510a76f3d22378a09af7560c68dfa73ed1d563a00e60",
+          "tests": {
+            "tests": 41,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "domains::cex::engine::balance_cache::settlement_tests::invalid_asset_pair_is_rejected_before_mutation",
+              "domains::cex::engine::balance_cache::settlement_tests::quote_multiplication_overflow_returns_error_without_panic",
+              "domains::cex::engine::balance_cache::settlement_tests::enormous_product_of_valid_operands_fails_without_panic",
+              "domains::cex::engine::balance_cache::settlement_tests::invalid_user_order_and_asset_identifiers_are_rejected",
+              "domains::cex::engine::balance_cache::settlement_tests::quote_finer_than_database_precision_is_not_rounded",
+              "domains::cex::engine::balance_cache::settlement_tests::missing_buyer_asset_does_not_create_a_zero_row",
+              "domains::cex::engine::balance_cache::settlement_tests::first_asset_shortage_keeps_all_balances_unchanged",
+              "domains::cex::engine::balance_cache::settlement_tests::negative_and_zero_trade_values_are_rejected_before_mutation",
+              "domains::cex::engine::balance_cache::settlement_tests::price_and_quantity_must_fit_current_database_precision",
+              "domains::cex::engine::balance_cache::settlement_tests::missing_seller_asset_does_not_create_balances_or_move_quote",
+              "domains::cex::engine::balance_cache::settlement_tests::exact_valid_product_beyond_i128_intermediate_is_supported",
+              "domains::cex::engine::balance_cache::settlement_tests::decimal_precision_loss_on_last_recipient_rejects_all_changes",
+              "domains::cex::engine::balance_cache::settlement_tests::existing_balances_and_unrelated_assets_are_preserved",
+              "domains::cex::engine::balance_cache::settlement_tests::corrupt_negative_balance_is_not_hidden_or_normalized",
+              "domains::cex::engine::balance_cache::settlement_tests::reservation_result_precision_failure_preserves_cache",
+              "domains::cex::engine::balance_cache::settlement_tests::same_customer_keys_are_coalesced_without_losing_balances",
+              "domains::cex::engine::balance_cache::settlement_tests::second_asset_shortage_does_not_leave_first_transfer_applied",
+              "domains::cex::engine::balance_cache::settlement_tests::second_recipient_overflow_does_not_apply_either_asset",
+              "domains::cex::engine::balance_cache::settlement_tests::smallest_supported_quote_is_transferred_exactly",
+              "domains::cex::engine::balance_cache::settlement_tests::successful_trade_moves_both_assets",
+              "domains::cex::engine::balance_cache::settlement_tests::valid_database_balance_cannot_overflow_on_either_recipient",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_fee_rounding_and_invalid_rates_are_explicit",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_invalid_fee_keeps_book_and_accounts_unchanged",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_ioc_refunds_unspendable_budget_dust",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_ioc_self_only_liquidity_returns_entire_reservation",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_benchmark_uses_same_core_and_failure_boundary",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_fees_follow_each_order_and_preserve_prior_deductions",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_partial_limit_buy_refunds_improvement_and_keeps_only_remaining_reservation",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_candidate_planning_never_mutates_original_orderbook",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::real_matching_pipeline_settles_both_assets_for_limit_and_market",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_price_time_priority_and_partial_maker_counters_are_preserved",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_reservation_failure_creates_neither_market_nor_zero_balance",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_failure_aborts_success_followups_for_limit_and_market",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_refund_precision_failure_preserves_book_and_entire_cache",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_market_budget_uses_exact_quantity_and_returns_dust",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_no_liquidity_market_orders_return_entire_reservation",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_only_self_liquidity_finishes_without_mutation_or_infinite_loop",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_self_orders_do_not_rotate_or_disappear",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_invalid_candidate_returns_error_without_panic_or_state_change",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_second_fill_failure_preserves_entire_book_and_cache",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_ioc_completes_full_partial_and_empty_buy_and_sell"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-startup.log",
+          "sha256": "32ce257afb945ce200e4fe9cb753d015ea61b15a45b0bf4b2dd02f6fa4958302",
+          "tests": {
+            "tests": 18,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "domains::cex::engine::runtime::engine::startup_tests::duplicate_start_does_not_reload_or_replace_running_state",
+              "domains::cex::engine::runtime::engine::startup_tests::empty_database_starts_and_stopped_instance_cannot_restart",
+              "domains::cex::engine::runtime::engine::startup_tests::failed_validation_does_not_publish_earlier_valid_rows",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_preserves_exact_balances_with_terminal_order_history",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_preserves_large_exact_fraction_without_decoder_panic",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_propagates_database_inspection_failure",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_reads_one_repeatable_read_readonly_snapshot",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_available_outside_current_storage_contract",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_duplicate_balance_rows",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_invalid_user_and_asset_identifiers",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_locked_balance_without_replay",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_negative_available_balance",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_negative_locked_balance",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_partial_unknown_and_null_order_statuses",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_pending_order_even_without_locked_balance",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_receipt_even_with_terminal_order",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_unrepresentable_decimal_without_panic",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_unrepresentable_decimal_without_panicking"
+            ]
+          }
+        }
+      ]
+    },
+    "76": {
+      "executions": 165,
+      "unique": 152,
+      "logs": [
+        {
+          "file": "review-rust-audit.log",
+          "sha256": "1d4d3739d4d66dfb1c8a5facc27363b926320c028856f60b3af93910cd4571e2",
+          "tests": {
+            "tests": 4,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "shared::service_identity::tests::service_and_audit_keys_are_independent",
+              "domains::cex::engine::runtime::audit::tests::audit_http_authentication_bounds_and_capacity_fail_closed",
+              "domains::cex::engine::runtime::audit::tests::audit_reads_commits_and_fixed_cut_without_core_or_platform_database",
+              "domains::cex::engine::runtime::audit::tests::audit_rejects_corruption_missing_file_and_wrong_engine_without_mutation"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-boundary.log",
+          "sha256": "3c3b657278d76bb436a89db6767d39e27a26878bbca3ccc7f9e2ee574ffcd490",
+          "tests": {
+            "tests": 2,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "engine_has_no_external_market_websocket_client_dependency",
+              "engine_does_not_own_a_trading_bot"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-cancel-boundary.log",
+          "sha256": "e3ce8f57894bbe6e262906e4d1c2461486fc6fe87a5251238c697a3504003317",
+          "tests": {
+            "tests": 1,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "domains::cex::services::order_service::cancellation_boundary_tests::cancellation_uses_owned_core_without_platform_database"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-deposit.log",
+          "sha256": "f37a545eb1c627848683d680d6652d5104a234e8ea2bd21f4148576298262942",
+          "tests": {
+            "tests": 8,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "domains::cex::engine::runtime::engine::journal_tests::deposit_once_preserves_locked_balance_and_duplicate_has_no_financial_output",
+              "domains::cex::engine::runtime::engine::journal_tests::deposit_identifier_cannot_change_user_asset_or_amount",
+              "domains::cex::engine::runtime::engine::journal_tests::valid_deposit_overflow_keeps_original_and_repeated_failure",
+              "domains::cex::engine::runtime::engine::journal_tests::invalid_deposit_never_creates_account_or_consumes_identifier",
+              "domains::cex::engine::runtime::engine::journal_tests::deposit_failed_receipt_replays_as_failure_and_keeps_original_payload",
+              "domains::cex::engine::runtime::engine::journal_tests::deposit_journal_failure_never_acknowledges_or_publishes",
+              "domains::cex::engine::runtime::engine::journal_tests::deposit_output_failure_republishes_same_event_after_recovery",
+              "domains::cex::engine::runtime::engine::journal_tests::deposit_real_worker_concurrent_retries_and_restart_credit_once"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-journal.log",
+          "sha256": "b4f522a8fdef5510a2df9ef9f5b6be8342e3d3049485ebe562658acccba5fbb0",
+          "tests": {
+            "tests": 36,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "domains::cex::engine::runtime::engine::journal_tests::deposit_once_preserves_locked_balance_and_duplicate_has_no_financial_output",
+              "domains::cex::engine::runtime::engine::journal_tests::deposit_identifier_cannot_change_user_asset_or_amount",
+              "domains::cex::engine::runtime::engine::journal_tests::invalid_deposit_never_creates_account_or_consumes_identifier",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_full_queue_preserves_input_and_does_not_confirm_uncommitted_order",
+              "domains::cex::engine::runtime::engine::journal_tests::deposit_failed_receipt_replays_as_failure_and_keeps_original_payload",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_failed_balance_delta_preserves_original_and_replays_rejection",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_ioc_completion_failure_keeps_cursor_and_identical_retry",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_conflicting_order_id_is_recorded_without_second_execution",
+              "domains::cex::engine::runtime::engine::journal_tests::deposit_journal_failure_never_acknowledges_or_publishes",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_fee_amount_mismatch_blocks_recovery_even_with_valid_checksum",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_ioc_contract_rejects_previous_fee_version_without_mutation",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_commit_failure_closes_input_and_never_replies_success",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_process_ownership_rejects_second_owner_and_releases_on_drop",
+              "domains::cex::engine::runtime::engine::journal_tests::deposit_output_failure_republishes_same_event_after_recovery",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_kafka_cannot_overtake_durable_watermark",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_market_failure_keeps_cursor_and_replays_identical_snapshot",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_fee_results_replay_and_duplicate_without_second_charge",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_multiple_makers_restore_fifo_and_remaining_order_exactly",
+              "domains::cex::engine::runtime::engine::journal_tests::deposit_real_worker_concurrent_retries_and_restart_credit_once",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_kafka_failure_keeps_durable_result_for_same_event_republication",
+              "domains::cex::engine::runtime::engine::journal_tests::valid_deposit_overflow_keeps_original_and_repeated_failure",
+              "domains::cex::engine::runtime::journal::store::checksum_tests::journal_checksum_rejects_changed_payload_before_decode",
+              "domains::cex::engine::runtime::journal::store::checksum_tests::journal_sha256_binary_checksum_is_unchanged",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_old_fee_contract_is_rejected_without_rewriting_history",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_ioc_zero_fill_and_partial_completion_replay_without_second_refund",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_lost_delivery_cursor_republishes_same_identity_timestamp_and_payload",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_market_budget_and_ioc_remainder_replay_exactly",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_process_exit_during_uncommitted_write_preserves_last_commit",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_response_waits_for_commit_while_core_keeps_processing",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_rejection_contract_blocks_version_three_without_rewriting",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_rejection_output_failure_keeps_cursor_and_identical_original",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_unsupported_schema_blocks_without_rewriting_existing_file",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_rejection_preserves_original_and_restart_duplicate_has_no_second_effect",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_standard_restart_needs_no_platform_database_and_missing_log_is_blocked",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_corruption_gap_result_mismatch_and_cursor_ahead_block_recovery",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_replays_partial_fill_cancel_balance_and_duplicate_commands"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-market.log",
+          "sha256": "fbb40aad4d46be3a8b535ce83e1d7ff43defc55cc56b2c2d6f2c5cca2050e216",
+          "tests": {
+            "tests": 5,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "domains::cex::engine::runtime::market::tests::market_projection_aggregates_beyond_one_account_limit_without_rounding",
+              "domains::cex::engine::runtime::market::tests::market_projection_market_buy_never_leaves_resting_budget",
+              "domains::cex::engine::runtime::market::tests::market_projection_skips_duplicates_and_rejections_and_preserves_other_pairs",
+              "domains::cex::engine::runtime::market::tests::market_projection_tracks_real_partial_fill_cancel_and_replay",
+              "domains::cex::engine::runtime::market::tests::market_projection_depth_is_sorted_bounded_and_promotes_hidden_levels"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-output.log",
+          "sha256": "790f969286f7dd6cdde4a225eed03cd5062de6f2fb61b5d2e65fc3437ece2aa2",
+          "tests": {
+            "tests": 6,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "domains::cex::engine::runtime::engine::output_tests::output_cancel_invalid_book_entry_is_rejected_before_unlock",
+              "domains::cex::engine::runtime::engine::output_tests::output_cancel_failure_preserves_order_and_success_updates_counter",
+              "routes::tests::output_failure_closed_handle_reports_unavailable_health",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_rejection_output_failure_keeps_cursor_and_identical_original",
+              "domains::cex::engine::runtime::engine::journal_tests::deposit_output_failure_republishes_same_event_after_recovery",
+              "shared::kafka::producer::tests::output_kafka_delivery_failure_is_not_reported_as_success"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-ownership.log",
+          "sha256": "ed7bf2e9b6ad85b8ec1347dcd0f41e2fed9dcf8fcb199e92b7d0cb0d3d43fb20",
+          "tests": {
+            "tests": 6,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "domains::cex::engine::runtime::handle::ownership_handle_tests::ownership_handle_rejects_closed_and_disconnected_channels",
+              "domains::cex::engine::runtime::engine::journal_tests::journal_process_ownership_rejects_second_owner_and_releases_on_drop",
+              "domains::cex::engine::runtime::handle::ownership_handle_tests::ownership_handle_queries_enter_queue_without_waiting_for_other_reply",
+              "domains::cex::engine::runtime::handle::ownership_handle_tests::ownership_handle_all_inputs_reject_full_queues_without_blocking",
+              "domains::cex::engine::runtime::engine::ownership_tests::ownership_worker_failure_preserves_orderbook_and_balance",
+              "domains::cex::engine::runtime::engine::ownership_tests::ownership_worker_moves_state_and_matches_direct_core_results"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-receipt.log",
+          "sha256": "e0e285361d932907c690144e9e9bbe4c356dadc3dae9de2e85e260d8e4dfeb77",
+          "tests": {
+            "tests": 19,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "domains::cex::services::order_receipt::tests::acceptance_forces_synchronous_commit_even_if_session_default_is_off",
+              "domains::cex::services::order_receipt::tests::changed_command_or_owner_cannot_reuse_receipt",
+              "domains::cex::services::order_receipt::tests::closed_dispatch_channel_keeps_receipt_and_does_not_panic",
+              "domains::cex::services::order_receipt::tests::commit_failure_does_not_dispatch_or_report_acceptance",
+              "domains::cex::services::order_receipt::tests::concurrent_completion_keeps_duplicate_acceptance_valid",
+              "domains::cex::services::order_receipt::tests::concurrent_receipts_execute_exactly_one_order",
+              "domains::cex::services::order_receipt::tests::current_order_changes_do_not_change_existing_receipt",
+              "domains::cex::services::order_receipt::tests::existing_db_receipt_does_not_confirm_a_closed_executor",
+              "domains::cex::services::order_receipt::tests::http_contract_distinguishes_new_and_existing_receipt",
+              "domains::cex::services::order_receipt::tests::invalid_identifiers_and_fields_never_dispatch",
+              "domains::cex::services::order_receipt::tests::market_buy_preserves_exact_budget_and_null_amount",
+              "domains::cex::services::order_receipt::tests::missing_receipt_storage_returns_unavailable_without_sql_details",
+              "domains::cex::services::order_receipt::tests::platform_original_mismatch_is_rejected_before_receipt",
+              "domains::cex::services::order_receipt::tests::receipt_fee_rate_is_frozen_and_invalid_policy_is_rejected",
+              "domains::cex::services::order_receipt::tests::receipt_foreign_key_protects_platform_original",
+              "domains::cex::services::order_receipt::tests::receipt_is_durable_before_dispatch_and_duplicate_keeps_timestamp",
+              "domains::cex::services::order_receipt::tests::receipt_preserves_large_exact_amount_without_decoder_panic",
+              "domains::cex::services::order_receipt::tests::receipt_rejects_unrepresentable_original_without_panic",
+              "domains::cex::services::order_receipt::tests::unknown_or_terminal_platform_order_is_not_accepted"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-repository.log",
+          "sha256": "8659397005059f235b40cda92e88b67b25ec1f3ea469801a0d14f3f2f1ab3cac",
+          "tests": {
+            "tests": 2,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "shared::database::repositories::cex::order_repository::exact_amount_tests::order_read_rejects_unrepresentable_database_amount_without_panic",
+              "shared::database::repositories::cex::order_repository::exact_amount_tests::order_reads_preserve_exact_amount_and_numeric_price_priority"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-request.log",
+          "sha256": "00f225a3315cbf212fedd062ba0e69b3b4717aee21dfe31516da340991a45b02",
+          "tests": {
+            "tests": 3,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "domains::cex::models::order::decimal_tests::request_decimals_require_strings_instead_of_json_floating_point",
+              "domains::cex::models::order::decimal_tests::request_decimals_preserve_exact_strings_and_optional_absence",
+              "domains::cex::models::order::decimal_tests::request_decimals_reject_precision_loss_in_every_amount_field"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-reservation.log",
+          "sha256": "3625a51e311b2f6b9969f5216c97096880c242f935c2bfcbf3b616ed80bea537",
+          "tests": {
+            "tests": 1,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "domains::cex::engine::runtime::engine::reservation_tests::platform_reservation_is_not_written_to_database_twice"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-routes.log",
+          "sha256": "5db5cb57d74913fee15839dca6f88eaca92e0b19a848a26a3839101ab5b44b8c",
+          "tests": {
+            "tests": 9,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "routes::tests::output_failure_closed_handle_reports_unavailable_health",
+              "routes::tests::retired_swap_routes_return_not_found",
+              "routes::tests::command_boundary_requires_platform_identity",
+              "routes::tests::removed_auth_routes_return_not_found",
+              "routes::tests::retired_wallet_routes_return_not_found",
+              "routes::tests::health_check_remains_available",
+              "routes::tests::trading_routes_still_validate_request_bodies",
+              "routes::tests::retired_balance_delta_route_is_absent_for_all_service_identities",
+              "routes::tests::cancellation_still_requires_user_id"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-service-identity.log",
+          "sha256": "d13c660e9e3edcfbae3837774395efbceb7099e3fc66bae8eb818155bbb1966c",
+          "tests": {
+            "tests": 3,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "shared::service_identity::tests::service_and_audit_keys_are_independent",
+              "shared::service_identity::tests::service_key_limits_are_checked_before_use",
+              "shared::service_identity::tests::service_identity_rejects_prefix_suffix_and_changed_byte"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-service-startup.log",
+          "sha256": "3bf117fe132e2d0f177ef41360be5bdd4d5fd31f610560c7626482ce8fdf2caa",
+          "tests": {
+            "tests": 1,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "invalid_audit_identity_fails_before_journal_creation"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-settlement.log",
+          "sha256": "21df0753c290006e8d2e03686f2ce4f311b420129acbc2fedbef65eb30d3e964",
+          "tests": {
+            "tests": 41,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "domains::cex::engine::balance_cache::settlement_tests::invalid_asset_pair_is_rejected_before_mutation",
+              "domains::cex::engine::balance_cache::settlement_tests::enormous_product_of_valid_operands_fails_without_panic",
+              "domains::cex::engine::balance_cache::settlement_tests::missing_buyer_asset_does_not_create_a_zero_row",
+              "domains::cex::engine::balance_cache::settlement_tests::quote_multiplication_overflow_returns_error_without_panic",
+              "domains::cex::engine::balance_cache::settlement_tests::quote_finer_than_database_precision_is_not_rounded",
+              "domains::cex::engine::balance_cache::settlement_tests::missing_seller_asset_does_not_create_balances_or_move_quote",
+              "domains::cex::engine::balance_cache::settlement_tests::invalid_user_order_and_asset_identifiers_are_rejected",
+              "domains::cex::engine::balance_cache::settlement_tests::first_asset_shortage_keeps_all_balances_unchanged",
+              "domains::cex::engine::balance_cache::settlement_tests::price_and_quantity_must_fit_current_database_precision",
+              "domains::cex::engine::balance_cache::settlement_tests::negative_and_zero_trade_values_are_rejected_before_mutation",
+              "domains::cex::engine::balance_cache::settlement_tests::reservation_result_precision_failure_preserves_cache",
+              "domains::cex::engine::balance_cache::settlement_tests::decimal_precision_loss_on_last_recipient_rejects_all_changes",
+              "domains::cex::engine::balance_cache::settlement_tests::corrupt_negative_balance_is_not_hidden_or_normalized",
+              "domains::cex::engine::balance_cache::settlement_tests::exact_valid_product_beyond_i128_intermediate_is_supported",
+              "domains::cex::engine::balance_cache::settlement_tests::existing_balances_and_unrelated_assets_are_preserved",
+              "domains::cex::engine::balance_cache::settlement_tests::same_customer_keys_are_coalesced_without_losing_balances",
+              "domains::cex::engine::balance_cache::settlement_tests::second_asset_shortage_does_not_leave_first_transfer_applied",
+              "domains::cex::engine::balance_cache::settlement_tests::second_recipient_overflow_does_not_apply_either_asset",
+              "domains::cex::engine::balance_cache::settlement_tests::smallest_supported_quote_is_transferred_exactly",
+              "domains::cex::engine::balance_cache::settlement_tests::successful_trade_moves_both_assets",
+              "domains::cex::engine::balance_cache::settlement_tests::valid_database_balance_cannot_overflow_on_either_recipient",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_fee_rounding_and_invalid_rates_are_explicit",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_fees_follow_each_order_and_preserve_prior_deductions",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_ioc_self_only_liquidity_returns_entire_reservation",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_invalid_fee_keeps_book_and_accounts_unchanged",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_candidate_planning_never_mutates_original_orderbook",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_ioc_refunds_unspendable_budget_dust",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_partial_limit_buy_refunds_improvement_and_keeps_only_remaining_reservation",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_failure_aborts_success_followups_for_limit_and_market",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::real_matching_pipeline_settles_both_assets_for_limit_and_market",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_refund_precision_failure_preserves_book_and_entire_cache",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_reservation_failure_creates_neither_market_nor_zero_balance",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_only_self_liquidity_finishes_without_mutation_or_infinite_loop",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_price_time_priority_and_partial_maker_counters_are_preserved",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_benchmark_uses_same_core_and_failure_boundary",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_self_orders_do_not_rotate_or_disappear",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_no_liquidity_market_orders_return_entire_reservation",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_market_budget_uses_exact_quantity_and_returns_dust",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_invalid_candidate_returns_error_without_panic_or_state_change",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::submission_second_fill_failure_preserves_entire_book_and_cache",
+              "domains::cex::engine::runtime::engine::settlement_pipeline_tests::settlement_ioc_completes_full_partial_and_empty_buy_and_sell"
+            ]
+          }
+        },
+        {
+          "file": "review-rust-startup.log",
+          "sha256": "a29cd36e06f2be380b3a3a044e0a4f250fd247c5f4f965b17571fd0eee7dad16",
+          "tests": {
+            "tests": 18,
+            "failed": 0,
+            "ignored": 0,
+            "cases": [
+              "domains::cex::engine::runtime::engine::startup_tests::duplicate_start_does_not_reload_or_replace_running_state",
+              "domains::cex::engine::runtime::engine::startup_tests::empty_database_starts_and_stopped_instance_cannot_restart",
+              "domains::cex::engine::runtime::engine::startup_tests::failed_validation_does_not_publish_earlier_valid_rows",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_preserves_exact_balances_with_terminal_order_history",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_preserves_large_exact_fraction_without_decoder_panic",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_propagates_database_inspection_failure",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_reads_one_repeatable_read_readonly_snapshot",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_available_outside_current_storage_contract",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_duplicate_balance_rows",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_invalid_user_and_asset_identifiers",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_locked_balance_without_replay",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_negative_available_balance",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_negative_locked_balance",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_partial_unknown_and_null_order_statuses",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_pending_order_even_without_locked_balance",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_receipt_even_with_terminal_order",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_unrepresentable_decimal_without_panic",
+              "domains::cex::engine::runtime::engine::startup_tests::startup_rejects_unrepresentable_decimal_without_panicking"
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "limits": [
+    "internal handle only; no new HTTP route or platform financial consumption",
+    "reason text is explanatory, not a machine decision code",
+    "no new broker/full-market-path/mainnet/performance/security-audit run"
+  ]
+}
