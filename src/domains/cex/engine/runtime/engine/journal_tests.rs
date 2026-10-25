@@ -1481,3 +1481,6 @@ async fn deposit_calculation_rejection_with_failed_journal_is_outcome_unknown() 
     assert!(store.recover()?.0.deposit_receipts.is_empty());
     Ok(())
 }
+
+// 기존 실제 워커 조립을 사용해 HTTP 응답의 영속 확정 경계를 별도 모듈에서 확인한다.
+mod deposit_http_tests;
