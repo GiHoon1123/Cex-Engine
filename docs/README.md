@@ -46,3 +46,5 @@
 - [입금 미접수·영속 거절·결과 불명 구분](decisions/020-typed-deposit-outcomes.md): 명시적 오류 타입·시간 초과 뒤 커밋/재시도·시험 집계 정정.
 
 - [입금 원본의 내부 HTTP와 영속 결과](decisions/021-internal-deposit-credit-http.md): 문자열 정확 금액·서비스 신원·확정/미접수/결과 불명·실제 저장 차단/실패/재시작.
+
+- [현재金融 이력과 최초 기동](decisions/022-first-bootstrap-current-history.md): 새 경로 초기화 차단·동일 읽기 스냅샷·DB 없는 원래 WAL 복구.
