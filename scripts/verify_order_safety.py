@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import time
 from uuid import uuid4
+from rust_test_results import parse_log
 
 ROOT = Path(__file__).resolve().parent.parent
 ARTIFACTS = ROOT.parent / ".local"
@@ -76,6 +77,12 @@ try:
         print(f"{case}: exit {completed.returncode}", flush=True)
         if completed.returncode:
             raise RuntimeError(f"{case} failed; see {log_path}")
+        if case not in ("compile", "build"):
+            results["checks"][-1]["tests"] = parse_log(log_path.read_text())
+    # 선택 간 중복은 이름으로 제거한다. 통과 수는 Cargo 요약과 먼저 대조했다.
+    cases = [name for check in results["checks"] for name in check.get("tests", {}).get("cases", [])]
+    results["tests"] = {"executions": len(cases), "unique": len(set(cases)), "failed": 0, "ignored": 0}
+    results["cases"] = sorted(set(cases))
 finally:
     # 이 실행이 만든 이름만 제거한다. 실패한 SQLx 하위 DB도 컨테이너와 함께 제거한다.
     removed = subprocess.run([DOCKER, "rm", "--force", container],
