@@ -22,6 +22,12 @@ async fn create_schema(pool: &PgPool) -> Result<()> {
         )",
     )
     .await?;
+    // 플랫폼이 현재 기록하는 수신/전송 이력의 읽기 계약이다. 금융 효과를 만드는
+    // 서비스/트리거를 재구현하지 않고 최초 기동이 알아야 할 행의 존재를 검증한다.
+    pool.execute("CREATE TABLE engine_event_receipts (event_id VARCHAR(120) PRIMARY KEY, engine_id VARCHAR(36) NOT NULL, payload_hash VARCHAR(64) NOT NULL)")
+        .await?;
+    pool.execute("CREATE TABLE bitcoin_credit_dispatch_attempts (id UUID PRIMARY KEY, receipt_id UUID NOT NULL, position BIGINT GENERATED ALWAYS AS IDENTITY UNIQUE)")
+        .await?;
     pool.execute("CREATE TABLE orders (id BIGINT PRIMARY KEY, status TEXT)")
         .await?;
     pool.execute("CREATE TABLE order_submissions (order_id BIGINT UNIQUE)")
@@ -53,7 +59,9 @@ async fn finish_engine(engine: &mut HighPerformanceEngine) -> Result<()> {
 async fn assert_start_blocked(pool: PgPool, expected_reason: &str) -> Result<()> {
     let mut engine = create_engine(pool);
     let result = engine.start().await;
-    let started_worker = engine.engine_thread.is_some() || engine.output_thread.is_some();
+    let started_worker = engine.engine_thread.is_some()
+        || engine.output_thread.is_some()
+        || engine.journal_thread.is_some();
     let published_balance = engine
         .state
         .as_mut()
@@ -369,5 +377,141 @@ async fn startup_rejects_available_outside_current_storage_contract(pool: PgPool
         assert_start_blocked(pool.clone(), "available").await?;
         pool.execute("DELETE FROM user_balances WHERE id=1").await?;
     }
+    Ok(())
+}
+
+// 현재 플랫폼 이력은 예전 접수 표가 비어 있어도 새 저널 초기화를 막아야 한다.
+#[sqlx::test(migrations = false)]
+async fn startup_rejects_current_financial_receipt_with_terminal_orders(
+    pool: PgPool,
+) -> Result<()> {
+    create_schema(&pool).await?;
+    pool.execute("INSERT INTO orders VALUES(1,'filled'); INSERT INTO user_balances(id,user_id,mint_address,available,locked) VALUES(1,101,'USDT',100,0)").await?;
+    let engine_id = uuid::Uuid::new_v4().to_string();
+    sqlx::query("INSERT INTO engine_event_receipts VALUES($1,$2,$3)")
+        .bind(format!("{engine_id}:1:0"))
+        .bind(engine_id)
+        .bind("a".repeat(64))
+        .execute(&pool)
+        .await?;
+    assert_start_blocked(pool.clone(), "current engine event history").await?;
+    let remaining: i64 = sqlx::query_scalar("SELECT count(*) FROM engine_event_receipts")
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(remaining, 1, "복구 거부가 수신 원본을 삭제해서는 안 된다");
+    Ok(())
+}
+
+#[sqlx::test(migrations = false)]
+async fn startup_rejects_public_receipt_as_prior_engine_activity(pool: PgPool) -> Result<()> {
+    create_schema(&pool).await?;
+    let engine_id = uuid::Uuid::new_v4().to_string();
+    sqlx::query("INSERT INTO engine_event_receipts VALUES($1,$2,$3)")
+        .bind(format!("{engine_id}:1:market"))
+        .bind(engine_id)
+        .bind("a".repeat(64))
+        .execute(&pool)
+        .await?;
+    assert_start_blocked(pool, "current engine event history").await
+}
+
+#[sqlx::test(migrations = false)]
+async fn startup_does_not_treat_unknown_receipt_identity_as_empty_history(
+    pool: PgPool,
+) -> Result<()> {
+    create_schema(&pool).await?;
+    pool.execute("INSERT INTO engine_event_receipts VALUES('damaged','unknown','not-a-hash')")
+        .await?;
+    assert_start_blocked(pool, "current engine event history").await
+}
+
+#[sqlx::test(migrations = false)]
+async fn startup_rejects_deposit_dispatch_without_any_received_result(pool: PgPool) -> Result<()> {
+    create_schema(&pool).await?;
+    sqlx::query("INSERT INTO bitcoin_credit_dispatch_attempts(id,receipt_id) VALUES($1,$2)")
+        .bind(uuid::Uuid::new_v4())
+        .bind(uuid::Uuid::new_v4())
+        .execute(&pool)
+        .await?;
+    assert_start_blocked(pool.clone(), "native deposit dispatch history").await?;
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM bitcoin_credit_dispatch_attempts")
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(
+        remaining, 1,
+        "불명 전송을 미실행으로 추측해 삭제해서는 안 된다"
+    );
+    Ok(())
+}
+
+#[sqlx::test(migrations = false)]
+async fn startup_refuses_missing_current_receipt_table(pool: PgPool) -> Result<()> {
+    create_schema(&pool).await?;
+    // 조회 불가를 빈 이력으로 바꾸지 않는지 시험 소유 DB의 실패 조건으로 확인한다.
+    pool.execute("DROP TABLE engine_event_receipts").await?;
+    assert_start_blocked(pool, "Failed to inspect current engine event history").await
+}
+
+#[sqlx::test(migrations = false)]
+async fn startup_refuses_missing_deposit_dispatch_table(pool: PgPool) -> Result<()> {
+    create_schema(&pool).await?;
+    pool.execute("DROP TABLE bitcoin_credit_dispatch_attempts")
+        .await?;
+    assert_start_blocked(pool, "Failed to inspect native deposit dispatch history").await
+}
+
+#[sqlx::test(migrations = false)]
+async fn current_history_probes_use_the_same_readonly_repeatable_snapshot(
+    pool: PgPool,
+) -> Result<()> {
+    create_schema(&pool).await?;
+    pool.execute("ALTER TABLE engine_event_receipts RENAME TO stored_event_receipts;
+        CREATE VIEW engine_event_receipts AS SELECT 'wrong-context'::varchar event_id
+        WHERE current_setting('transaction_isolation')<>'repeatable read' OR current_setting('transaction_read_only')<>'on';
+        ALTER TABLE bitcoin_credit_dispatch_attempts RENAME TO stored_deposit_attempts;
+        CREATE VIEW bitcoin_credit_dispatch_attempts AS SELECT '00000000-0000-0000-0000-000000000001'::uuid id
+        WHERE current_setting('transaction_isolation')<>'repeatable read' OR current_setting('transaction_read_only')<>'on'").await?;
+    let cache = super::super::startup::load_balances(&pool).await?;
+    assert!(cache.get_balance(101, "USDT").is_none());
+    Ok(())
+}
+
+#[sqlx::test(migrations = false)]
+async fn existing_journal_recovers_while_new_path_refuses_current_history(
+    pool: PgPool,
+) -> Result<()> {
+    create_schema(&pool).await?;
+    pool.execute("INSERT INTO user_balances(id,user_id,mint_address,available,locked) VALUES(1,101,'USDT',100,0)").await?;
+    let directory = tempfile::tempdir()?;
+    let mut original =
+        HighPerformanceEngine::new(Database::noop(pool.clone())).with_data_dir(directory.path());
+    original.start().await?;
+    original
+        .handle()
+        .lock_balance(101, "USDT", Decimal::from(10))
+        .await?;
+    finish_engine(&mut original).await?;
+    // 다른 플랫폼 투영과 현재 이력이 생긴 상황을 만든다. 원본을 삭제하거나
+    // 새로운 디렉터리를 복구 경로라고 가정해서는 안 된다.
+    let engine_id = uuid::Uuid::new_v4().to_string();
+    sqlx::query("INSERT INTO engine_event_receipts VALUES($1,$2,$3)")
+        .bind(format!("{engine_id}:1:0"))
+        .bind(engine_id)
+        .bind("a".repeat(64))
+        .execute(&pool)
+        .await?;
+    pool.execute("UPDATE user_balances SET available=999 WHERE user_id=101")
+        .await?;
+    assert_start_blocked(pool.clone(), "current engine event history").await?;
+    // 풀을 닫아 DB 읽기가 불가능해도 원래 저널은 90/10을 정확히 복원해야 한다.
+    // 복구가 플랫폼 DB의 999나 현재 이력을 조회했다면 이 시작은 실패한다.
+    pool.close().await;
+    let mut recovered =
+        HighPerformanceEngine::new(Database::noop(pool)).with_data_dir(directory.path());
+    recovered.start().await?;
+    let balance = recovered.handle().get_balance(101, "USDT").await?;
+    finish_engine(&mut recovered).await?;
+    assert_eq!(balance, (Decimal::from(90), Decimal::from(10)));
     Ok(())
 }

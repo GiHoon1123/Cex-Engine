@@ -37,6 +37,33 @@ pub(super) async fn load_balances(pool: &PgPool) -> Result<BalanceCache> {
         );
     }
 
+    // 현재 플랫폼은 주문/입금/공개 호가의 수신 키를 보존한다. 공개 호가만 있어도
+    // 이미 엔진이 저널 위치를 발행했다는 뜻이므로 새 경로를 최초 기동으로 추측하지 않는다.
+    // 잔액 투영에는 입금/주문 멱등 원본과 처리 순서가 없어 자체 저널을 대신할 수 없다.
+    let received: Option<String> =
+        sqlx::query_scalar("SELECT event_id FROM engine_event_receipts ORDER BY event_id LIMIT 1")
+            .fetch_optional(&mut *transaction)
+            .await
+            .context("Failed to inspect current engine event history")?;
+    ensure!(
+        received.is_none(),
+        "Engine startup blocked: current engine event history exists; restore the authoritative journal"
+    );
+
+    // 결과 불명·이번 미접수도 과거 미실행의 증거가 아니다. 입금 전송 시도가 있으면
+    // 새 시작점에 처리 식별자를 잃어버린 채 잔액만 반입하지 않고 원래 저널 복구를 요구한다.
+    // 두 이력 표가 없거나 읽을 수 없는 경우에도 빈 이력으로 우회하지 않는다.
+    let attempted: Option<String> = sqlx::query_scalar(
+        "SELECT id::text FROM bitcoin_credit_dispatch_attempts ORDER BY id LIMIT 1",
+    )
+    .fetch_optional(&mut *transaction)
+    .await
+    .context("Failed to inspect native deposit dispatch history")?;
+    ensure!(
+        attempted.is_none(),
+        "Engine startup blocked: native deposit dispatch history exists; restore the authoritative journal"
+    );
+
     // 종료 상태만 명시적으로 허용한다. pending·partial뿐 아니라 알 수 없는
     // 상태도 복구 판단 없이 빠뜨리지 않는다. NULL 역시 종료로 간주하지 않는다.
     let unresolved_order: Option<(i64, Option<String>)> = sqlx::query_as(
