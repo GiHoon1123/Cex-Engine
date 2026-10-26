@@ -51,7 +51,7 @@ Cargo.lock의 Axum0.7.9·rust_decimal1.40.0·Serde·Tower를 확인했다. docs.
 
 ## 구현과 실제 코드·문법
 
-출처: [deposit_handler.rs](../../src/domains/cex/handlers/deposit_handler.rs#L20), 현재 소스의 부분 발췌.
+출처: [deposit_handler.rs](../../src/domains/cex/handlers/deposit_handler.rs#L16), 현재 소스의 부분 발췌.
 
 ```rust
 #[derive(Deserialize)]
@@ -67,19 +67,20 @@ impl CreditRequest {
 
 derive는 Serde의 실제 역직렬화를 생성한다. deny_unknown_fields는 허용하지 않은 입력을 런타임에 거부한다. String은 소유한 문자열이며 TypeScript의 정적 인터페이스 선언과 달리 실제 검증이 수행된다.
 
-출처: [deposit_handler.rs](../../src/domains/cex/handlers/deposit_handler.rs#L56), 현재 소스의 부분 발췌.
+출처: [financial_input.rs](../../src/domains/cex/handlers/financial_input.rs#L29), 현재137에서 입출금이 공유하는 소스의 부분 발췌.
 
 ```rust
-        let value = Decimal::from_str_exact(&self.amount).ok()?;
-        if value <= Decimal::ZERO || amount::units(value).is_err() {
-            return None;
-        }
-        Some(DepositCredit {
+    let value = Decimal::from_str_exact(text).ok()?;
+    if value <= Decimal::ZERO || amount::units(value).is_err() {
+        return None;
+    }
+    Some(value)
+}
 ```
 
-정확히 표현하지 못하면 None으로 입력을 거부한다. Rust의 ?는 여기서 Option의 실패를 즉시 반환하며, 기존 units가 정산 정밀도·범위를 검사한다. 임의 반올림이나 새 자산 설정 계층은 없다.
+현재137에서는 같은 검증을 financial_input으로 옮겨 입출금 HTTP가 함께 사용한다. 아래021 실행 결과는 당시 기록이다. 정확히 표현하지 못하면 None으로 입력을 거부한다. Rust의 ?는 여기서 Option의 실패를 즉시 반환하며, 기존 units가 정산 정밀도·범위를 검사한다. 임의 반올림이나 새 자산 설정 계층은 없다.
 
-출처: [deposit_handler.rs](../../src/domains/cex/handlers/deposit_handler.rs#L94), 현재 소스의 부분 발췌.
+출처: [deposit_handler.rs](../../src/domains/cex/handlers/deposit_handler.rs#L64), 현재 소스의 부분 발췌.
 
 ```rust
     match state.engine.credit_deposit(credit).await {

@@ -74,7 +74,7 @@ DepositCredit은 deposit_id, user_id, asset, amount를 받는다. 코어는 체�
 
 ?는 계산 실패를 즉시 반환한다. 정확한 다음 잔액을 구하기 전에 get_balance_mut으로 계정을 만들거나 기존 값을 수정하지 않는다. clone은 입금 원본을 소유하는 결과/인덱스에 필요한 값 복사이며 코어 상태를 외부로 공유하는 것이 아니다.
 
-출처: [handle.rs](../../src/domains/cex/engine/runtime/handle.rs#L28), 현재 소스의 부분 발췌.
+출처: [handle.rs](../../src/domains/cex/engine/runtime/handle.rs#L49), 현재 소스의 부분 발췌.
 
 ```rust
     pub async fn credit_deposit(

@@ -10,17 +10,14 @@
 
 ## 실제 코드와 원리
 
-출처: [routes.rs](../../src/domains/cex/routes.rs#L10), 현재 활성 경로의 부분 발췌.
+출처: [routes.rs](../../src/domains/cex/routes.rs#L15), 현재 활성 경로의 부분 발췌.
 
 ```rust
-pub fn create_cex_router() -> Router<AppState> {
-    Router::new()
         .route("/orders", post(handlers::create_order))
         .route("/orders/:order_id", delete(handlers::cancel_order))
-}
 ```
 
-Router<AppState>는 상위에서 상태를 공급받을 라우터다. 주문 생성과 취소만 등록하며 삭제 경로는 매칭되지 않아404가 된다. 서비스 신원은 상위 route_layer가 활성 경로에 적용한다. route를 남겨 내부 오류를 반환하는 대안 대신 등록 자체를 없앴다.
+Router<AppState>는 상위에서 상태를 공급받을 라우터다. 발췌는 주문 생성·취소 등록이다. 현재는 원본 식별 입금/출금 명령도 있지만, 원본 없는 잔액 증감의 삭제 경로는 계속404다. 아래 실행 수치는019 당시 결과다. 서비스 신원은 상위 route_layer가 활성 경로에 적용한다. route를 남겨 내부 오류를 반환하는 대안 대신 등록 자체를 없앴다.
 
 ## 테스트와 실행
 

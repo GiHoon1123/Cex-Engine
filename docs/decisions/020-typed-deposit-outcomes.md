@@ -58,7 +58,7 @@ pub enum DepositCreditError {
 
 Rust enum은 서로 배타적인 변형을 정의한다. TypeScript의 {kind: "notAccepted"}|{kind:"outcomeUnknown"}|{kind:"rejected",reason:string} 같은 판별 가능한 합 타입과 비교할 수 있다. thiserror는 오류 표시 구현을 생성하며 새로운 런타임/스레드를 만들지 않는다.
 
-출처: [handle.rs](../../src/domains/cex/engine/runtime/handle.rs#L28), 현재 소스의 부분 발췌.
+출처: [handle.rs](../../src/domains/cex/engine/runtime/handle.rs#L49), 현재 소스의 부분 발췌.
 
 ```rust
     pub async fn credit_deposit(
@@ -90,7 +90,7 @@ Rust enum은 서로 배타적인 변형을 정의한다. TypeScript의 {kind: "n
 
 표준 Result<(),DepositCreditError>는 성공 시 값이 없는 ()와 명시적 오류 중 하나다. map_err는 실패 변형만 바꾸며 ?는 그 실패를 즉시 반환한다. timeout이나 수신 채널 오류는 동일한 결과 불명이고, 수신된 금융 거절만 Rejected로 분류한다. async 요청의 대기는 코어 스레드의 디스크 대기가 아니다.
 
-출처: [store.rs](../../src/domains/cex/engine/runtime/journal/store.rs#L326), 현재 소스의 부분 발췌.
+출처: [store.rs](../../src/domains/cex/engine/runtime/journal/store.rs#L328), 현재 소스의 부분 발췌.
 
 ```rust
         store.append(&group, &mut sequence).map_err(|error| {

@@ -47,4 +47,6 @@
 
 - [입금 원본의 내부 HTTP와 영속 결과](decisions/021-internal-deposit-credit-http.md): 문자열 정확 금액·서비스 신원·확정/미접수/결과 불명·실제 저장 차단/실패/재시작.
 
-- [현재金融 이력과 최초 기동](decisions/022-first-bootstrap-current-history.md): 새 경로 초기화 차단·동일 읽기 스냅샷·DB 없는 원래 WAL 복구.
+- [현재 금융 이력과 최초 기동](decisions/022-first-bootstrap-current-history.md): 새 경로 초기화 차단·동일 읽기 스냅샷·DB 없는 원래 WAL 복구.
+
+- [출금별 예약·해제·완료와 최초 금융 거절](decisions/023-withdrawal-reservations.md): 단일 소유/정확 금액·자체 WAL·고유 금융 결과·강제 복원. 플랫폼/실제 체인 연결은 후속.
