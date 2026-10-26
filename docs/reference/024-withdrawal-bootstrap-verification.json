@@ -1,0 +1,66 @@
+{
+  "cycle": 141,
+  "startup_and_build": {
+    "container": "cex-cycle141-rust-3d52f4267264",
+    "checks": [
+      {
+        "label": "startup",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--lib",
+          "startup_tests",
+          "--",
+          "--test-threads=1"
+        ],
+        "exit": 0
+      },
+      {
+        "label": "build",
+        "command": [
+          "cargo",
+          "build",
+          "--locked"
+        ],
+        "exit": 0
+      }
+    ],
+    "container_removed": true
+  },
+  "startup_tests": {
+    "passed": 30,
+    "failed": 0,
+    "ignored": 0,
+    "filtered_out": 180
+  },
+  "wire": {
+    "run_id": "993b0ea175a0",
+    "database_container": "cex-withdrawal-993b0ea175a0",
+    "broker_container": "cex-withdrawal-b8c08a254f",
+    "checks": [
+      {
+        "case": "unauthorized_command_has_no_journal_record",
+        "status": 401
+      },
+      {
+        "case": "own_wal_recovers_while_initial_database_is_paused",
+        "events": 6,
+        "original_event_unchanged": true
+      },
+      {
+        "case": "actual_kafka_equals_durable_audit_events",
+        "raw_events": 7,
+        "unique_events": 6,
+        "consumer_exit_after_quiet_timeout": 0
+      },
+      {
+        "case": "engine_does_not_write_platform_projection",
+        "initial_balance_unchanged": true
+      }
+    ],
+    "exit": 0,
+    "broker_removed": true,
+    "database_removed": true
+  }
+}

@@ -60,13 +60,11 @@ Option<String>은 행이 없으면 None, 있으면 Some(이벤트 식별자)다.
         "Engine startup blocked: native deposit dispatch history exists; restore the authoritative journal"
     );
 
-    // 종료 상태만 명시적으로 허용한다. pending·partial뿐 아니라 알 수 없는
-    // 상태도 복구 판단 없이 빠뜨리지 않는다. NULL 역시 종료로 간주하지 않는다.
 ```
 
 두 번째 검사도 &mut *transaction으로 같은 트랜잭션 연결을 빌린다. 새 풀 연결로 조회하지 않는다. 식별자와 결과를 재계산하지 않고 기록의 존재만 확인하며 최초 시작점의 적격성만 판단한다.
 
-출처: [startup_tests.rs](../../src/domains/cex/engine/runtime/engine/startup_tests.rs#L509), 현재 소스의 부분 발췌.
+출처: [startup_tests.rs](../../src/domains/cex/engine/runtime/engine/startup_tests.rs#L546), 현재 소스의 부분 발췌.
 
 ```rust
     pool.close().await;
