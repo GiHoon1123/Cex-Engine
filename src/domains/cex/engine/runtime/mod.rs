@@ -29,6 +29,8 @@ pub use balance_commands::BalanceCommand;
 
 mod journal;
 mod deposit;
+mod withdrawal;
+pub use withdrawal::{WithdrawalAction, WithdrawalCommand, WithdrawalFunds, WithdrawalError};
 pub use deposit::{DepositCredit, DepositCreditError};
 
 pub(crate) mod market;

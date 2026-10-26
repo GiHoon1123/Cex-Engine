@@ -1,4 +1,4 @@
-//! 요청용 명령 핸들. 주문장·잔액·스레드 JoinHandle을 보유하지 않는다.
+//! 요청용 명령 핸들. 오더북·잔액·스레드 JoinHandle을 보유하지 않는다.
 use super::{balance_commands::BalanceCommand, commands::OrderCommand};
 use crate::domains::cex::engine::{Engine, OrderEntry, TradingPair};
 use anyhow::Result;
@@ -24,6 +24,27 @@ pub struct EngineHandle {
 }
 
 impl EngineHandle {
+    /// 출금 명령도 같은 단일 코어/기록 워커로 전달한다. 디스크를 기다리는 것은 요청 태스크뿐이다.
+    pub async fn change_withdrawal(
+        &self,
+        command: super::WithdrawalCommand,
+    ) -> std::result::Result<(), super::WithdrawalError> {
+        use super::WithdrawalError;
+        let (sender, receiver) = oneshot::channel();
+        self.send_balance(BalanceCommand::Withdrawal {
+            command,
+            response: sender,
+        })
+        .map_err(|_| WithdrawalError::NotAccepted)?;
+        timeout(Duration::from_secs(3), receiver)
+            .await
+            .map_err(|_| WithdrawalError::OutcomeUnknown)?
+            .map_err(|_| WithdrawalError::OutcomeUnknown)?
+            .map_err(|error| WithdrawalError::Rejected {
+                reason: error.to_string(),
+            })
+    }
+
     /// 같은 입금 원본만 재시도한다. 성공 응답은 기존 기록 워커의 영속 커밋 뒤에만 도착한다.
     pub async fn credit_deposit(
         &self,
@@ -475,5 +496,4 @@ mod ownership_handle_tests {
         ));
         Ok(())
     }
-
 }

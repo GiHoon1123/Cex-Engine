@@ -19,6 +19,8 @@ use std::sync::{
 /// 일부만 전달되는 것을 막는다. 문자열과 직렬화는 출력 워커에서 구성한다.
 #[derive(Debug, Serialize, Deserialize)]
 pub(super) enum OutputBatch {
+    WithdrawalChanged(super::WithdrawalCommand),
+    WithdrawalRejected { funds: super::WithdrawalFunds, reason: String },
     DepositCredited(super::DepositCredit),
     Submitted {
         order_id: u64,
@@ -93,6 +95,27 @@ pub(super) fn visit_events(
     mut send: impl FnMut(usize, String) -> std::result::Result<(), DeliveryError>,
 ) -> std::result::Result<(), DeliveryError> {
     match batch {
+        OutputBatch::WithdrawalRejected { funds, .. } => {
+            // 최초 예약의 금융 거절만 발행한다. 뒤늦은 단계 충돌/다른 원본의409를 반환 권한으로 바꾸지 않는다.
+            let event=serde_json::json!({
+                "event_id":format!("{}:{}:0",position.engine_id,position.sequence),"engine_id":position.engine_id,
+                "event_type":"withdrawal_rejected","withdrawal_id":funds.withdrawal_id,"user_id":funds.user_id,
+                "asset":funds.asset,"amount":funds.amount,"reason_code":"RESERVATION_REJECTED","timestamp":position.timestamp,
+            });
+            send(0,encode(&event,0)?)?;
+        }
+
+        OutputBatch::WithdrawalChanged(command) => {
+            // 확정 위치로 식별자를 만든다. 중복 명령은 새 금융 출력을 만들지 않는다.
+            let funds=&command.funds;
+            let event=serde_json::json!({
+                "event_id":format!("{}:{}:0",position.engine_id,position.sequence),"engine_id":position.engine_id,
+                "event_type":command.action.event_type(),"withdrawal_id":funds.withdrawal_id,"user_id":funds.user_id,
+                "asset":funds.asset,"amount":funds.amount,"timestamp":position.timestamp,
+            });
+            send(0,encode(&event,0)?)?;
+        }
+
         OutputBatch::DepositCredited(credit) => {
             // 결과 식별자는 원래 저널 위치다. 재발행에서도 시각과 식별자를 그대로 유지한다.
             let event = serde_json::json!({

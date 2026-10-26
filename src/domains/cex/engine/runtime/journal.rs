@@ -19,6 +19,7 @@ pub(super) mod store;
 /// 재생은 같은 계산 함수를 사용하고 저장된 결과와 비교한다.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) enum Command {
+    Withdrawal(super::WithdrawalCommand),
     CreditDeposit(super::DepositCredit),
     Submit(OrderEntry),
     Cancel {
@@ -55,6 +56,7 @@ pub(super) enum Reply {
     Submit(oneshot::Sender<Result<()>>),
     Cancel(oneshot::Sender<Result<OrderEntry>>),
     Unit(oneshot::Sender<Result<()>>),
+    Withdrawal(oneshot::Sender<Result<()>>),
     Book(
         oneshot::Sender<Result<(Vec<OrderEntry>, Vec<OrderEntry>)>>,
         (Vec<OrderEntry>, Vec<OrderEntry>),
@@ -88,6 +90,13 @@ impl Pending {
                     _ => Err(anyhow::anyhow!("Invalid cancellation outcome")),
                 };
                 let _ = sender.send(result);
+            }
+            Reply::Withdrawal(sender) => {
+                // 확정 금융 거절은 Kafka 출력도 갖지만 HTTP 성공 예약으로 바꾸지 않는다.
+                let _ = sender.send(match self.outcome {
+                    Outcome::Failed(reason) | Outcome::Applied(Some(OutputBatch::WithdrawalRejected { reason, .. })) => Err(anyhow::anyhow!(reason)),
+                    _ => Ok(()),
+                });
             }
             Reply::Unit(sender) => {
                 let _ = sender.send(match self.outcome {
@@ -130,6 +139,7 @@ pub(super) fn apply(state: &mut EngineState, command: &Command) -> Outcome {
 }
 fn execute(state: &mut EngineState, command: &Command) -> Result<Option<OutputBatch>> {
     match command {
+        Command::Withdrawal(command) => super::withdrawal::apply(state, command),
         Command::CreditDeposit(credit) => super::deposit::apply(state, credit),
         Command::Submit(order) => {
             if let Some(original) = state.submissions.get(&order.id) {

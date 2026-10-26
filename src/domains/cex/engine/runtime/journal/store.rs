@@ -145,6 +145,8 @@ impl Store {
     }
     pub fn initialize(&mut self, state: &EngineState) -> Result<()> {
         ensure!(!self.initialized()?, "Journal already initialized");
+        // 최초 잔액 반입은 실행 이력의 스냅샷이 아니다. 원본/예약 메타데이터를 빼고 새 계보를 만들지 않는다.
+        ensure!(state.deposit_receipts.is_empty() && state.withdrawal_receipts.is_empty() && state.submissions.is_empty() && state.cancellations.is_empty() && state.orderbooks.is_empty(),"Genesis cannot replace executed financial history");
         let genesis = Genesis {
             version: 4,
             engine_id: uuid::Uuid::new_v4().to_string(),

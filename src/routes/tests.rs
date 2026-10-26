@@ -237,3 +237,5 @@ async fn retired_swap_routes_return_not_found() {
 
 // 입금 HTTP 경계의 실제 라우터 회귀를 별도 파일로 나눈다.
 mod deposit;
+
+mod withdrawal;

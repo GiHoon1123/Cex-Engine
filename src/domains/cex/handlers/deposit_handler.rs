@@ -1,9 +1,6 @@
 //! 플랫폼이 확정한 입금 원본을 기존 명령 핸들에 전달한다.
 //! 체인·고객·출처 심사는 플랫폼 책임이다. 이 경계는 원본 없는 잔액 증감 API가 아니다.
-use crate::domains::cex::engine::{
-    amount,
-    runtime::{DepositCredit, DepositCreditError},
-};
+use crate::domains::cex::engine::runtime::{DepositCredit, DepositCreditError};
 use crate::shared::services::AppState;
 use axum::{
     extract::{rejection::JsonRejection, State},
@@ -11,7 +8,6 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use rust_decimal::Decimal;
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -27,36 +23,10 @@ pub struct CreditRequest {
 }
 impl CreditRequest {
     fn validated(self) -> Option<DepositCredit> {
-        if self.deposit_id.is_nil()
-            || self.user_id == 0
-            || self.user_id > i64::MAX as u64
-            || self.asset.is_empty()
-            || self.asset.len() > 128
-            || !self
-                .asset
-                .bytes()
-                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
-            || self.amount.is_empty()
-            || self.amount.len() > 64
-        {
+        if self.deposit_id.is_nil() {
             return None;
         }
-        // 부호·공백·지수·밑줄 없이 십진 정수 또는 소수만 받는다. 수학적으로 같은 원본은
-        // Decimal 값으로 비교하지만, 표현 불가능한 작은 값을 반올림해 다른 금액으로 보내지 않는다.
-        let mut parts = self.amount.split('.');
-        let integral = parts.next()?;
-        let fractional = parts.next();
-        if integral.is_empty()
-            || !integral.bytes().all(|c| c.is_ascii_digit())
-            || parts.next().is_some()
-            || fractional.is_some_and(|s| s.is_empty() || !s.bytes().all(|c| c.is_ascii_digit()))
-        {
-            return None;
-        }
-        let value = Decimal::from_str_exact(&self.amount).ok()?;
-        if value <= Decimal::ZERO || amount::units(value).is_err() {
-            return None;
-        }
+        let value = super::financial_input::validated(self.user_id, &self.asset, &self.amount)?;
         Some(DepositCredit {
             deposit_id: self.deposit_id,
             user_id: self.user_id,

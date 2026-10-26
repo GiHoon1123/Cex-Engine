@@ -1484,3 +1484,5 @@ async fn deposit_calculation_rejection_with_failed_journal_is_outcome_unknown() 
 
 // 기존 실제 워커 조립을 사용해 HTTP 응답의 영속 확정 경계를 별도 모듈에서 확인한다.
 mod deposit_http_tests;
+
+mod withdrawal_tests;

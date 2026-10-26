@@ -6,7 +6,7 @@
 // 핵심 설계:
 // 1. HashMap으로 O(1) 조회/업데이트
 // 2. available + locked 분리 관리
-// 3. DB와 비동기 동기화 (엔진은 메모리만 사용)
+// 3. 자체 저널/외부 출력과 분리 (단일 코어는 메모리만 계산)
 //
 // 잔고 상태 변화:
 // 1. 주문 생성 → available 차감, locked 증가
@@ -31,7 +31,7 @@ mod settlement;
 pub struct Balance {
     /// 사용 가능 잔고 (즉시 거래 가능)
     pub available: Decimal,
-    /// 잠긴 잔고 (주문에 사용 중)
+    /// 잠긴 잔고 (주문/출금 원본이 각자 자신의 몫을 보유)
     pub locked: Decimal,
 }
 
@@ -182,8 +182,8 @@ impl BalanceCache {
         }
     }
 
-    /// 전체 후보가 검증된 뒤 영향받은 계정만 반영한다. 호출자는 주문장·Executor
-    /// 락을 함께 유지한다. 오류가 생길 수 있는 금액 변환은 이미 끝나 있어야 한다.
+    /// 전체 후보가 검증된 뒤 영향받은 계정만 반영한다. 호출자는 단일 코어에서
+    /// 오더북·실행기를 독점 소유한다. 오류가 생길 수 있는 금액 변환은 이미 끝나 있어야 한다.
     pub(crate) fn commit_prepared(&mut self,prepared:Self) {
         for (key,balance) in prepared.balances { self.balances.insert(key,balance); }
     }

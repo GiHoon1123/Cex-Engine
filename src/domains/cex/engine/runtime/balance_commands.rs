@@ -7,6 +7,10 @@ use tokio::sync::oneshot;
 
 #[derive(Debug)]
 pub enum BalanceCommand {
+    Withdrawal {
+        command: super::WithdrawalCommand,
+        response: oneshot::Sender<Result<()>>,
+    },
     CreditDeposit {
         credit: super::DepositCredit,
         response: oneshot::Sender<Result<()>>,

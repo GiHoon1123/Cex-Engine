@@ -65,7 +65,8 @@ pub(super) fn engine_thread_loop(
             continue;
         }
         if let Ok(input) = balances.try_recv() {
-            let (command, response) = match input {
+            let (command, reply) = match input {
+                BalanceCommand::Withdrawal { command, response } => (Command::Withdrawal(command), Reply::Withdrawal(response)),
                 BalanceCommand::UpdateBalance {
                     user_id,
                     mint,
@@ -77,10 +78,10 @@ pub(super) fn engine_thread_loop(
                         mint,
                         delta: available_delta,
                     },
-                    response,
+                    Reply::Unit(response),
                 ),
                 BalanceCommand::CreditDeposit { credit, response } => {
-                    (Command::CreditDeposit(credit), response)
+                    (Command::CreditDeposit(credit), Reply::Unit(response))
                 }
             };
             let outcome = journal::apply(&mut state, &command);
@@ -89,7 +90,7 @@ pub(super) fn engine_thread_loop(
                 Pending {
                     command: Some(command),
                     outcome,
-                    reply: Reply::Unit(response),
+                    reply,
                 },
             );
             continue;
