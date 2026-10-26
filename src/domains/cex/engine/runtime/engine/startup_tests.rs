@@ -28,6 +28,9 @@ async fn create_schema(pool: &PgPool) -> Result<()> {
         .await?;
     pool.execute("CREATE TABLE bitcoin_credit_dispatch_attempts (id UUID PRIMARY KEY, receipt_id UUID NOT NULL, position BIGINT GENERATED ALWAYS AS IDENTITY UNIQUE)")
         .await?;
+    pool.execute("CREATE TABLE bitcoin_withdrawals (id UUID PRIMARY KEY)")
+        .await?;
+    pool.execute("CREATE TABLE bitcoin_withdrawal_dispatch_attempts (id UUID PRIMARY KEY, withdrawal_id UUID)").await?;
     pool.execute("CREATE TABLE orders (id BIGINT PRIMARY KEY, status TEXT)")
         .await?;
     pool.execute("CREATE TABLE order_submissions (order_id BIGINT UNIQUE)")
@@ -443,6 +446,40 @@ async fn startup_rejects_deposit_dispatch_without_any_received_result(pool: PgPo
         "불명 전송을 미실행으로 추측해 삭제해서는 안 된다"
     );
     Ok(())
+}
+
+#[sqlx::test(migrations = false)]
+async fn startup_blocks_current_withdrawal_history_without_journal(pool: PgPool) -> Result<()> {
+    create_schema(&pool).await?;
+    pool.execute(
+        "INSERT INTO bitcoin_withdrawals(id) VALUES('00000000-0000-0000-0000-000000000001')",
+    )
+    .await?;
+    assert_start_blocked(pool, "native withdrawal history exists").await
+}
+
+#[sqlx::test(migrations = false)]
+async fn startup_blocks_unconfirmed_withdrawal_dispatch_without_journal(
+    pool: PgPool,
+) -> Result<()> {
+    create_schema(&pool).await?;
+    pool.execute("INSERT INTO bitcoin_withdrawal_dispatch_attempts(id,withdrawal_id) VALUES('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001')").await?;
+    assert_start_blocked(pool, "native withdrawal dispatch history exists").await
+}
+
+#[sqlx::test(migrations = false)]
+async fn startup_refuses_missing_withdrawal_history_tables(pool: PgPool) -> Result<()> {
+    create_schema(&pool).await?;
+    pool.execute("DROP TABLE bitcoin_withdrawals").await?;
+    assert_start_blocked(pool, "Failed to inspect native withdrawal history").await
+}
+
+#[sqlx::test(migrations = false)]
+async fn startup_refuses_missing_withdrawal_dispatch_table(pool: PgPool) -> Result<()> {
+    create_schema(&pool).await?;
+    pool.execute("DROP TABLE bitcoin_withdrawal_dispatch_attempts")
+        .await?;
+    assert_start_blocked(pool, "Failed to inspect native withdrawal dispatch history").await
 }
 
 #[sqlx::test(migrations = false)]

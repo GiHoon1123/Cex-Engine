@@ -62,7 +62,7 @@ try:
   time.sleep(.2)
  address=subprocess.check_output([DOCKER,'port',pg,'5432/tcp'],text=True).strip()
  # 실제 최초 기동이 읽는 최소 표다. 플랫폼의 전체 업무 스키마를 검증했다고 주장하지 않는다.
- sql("CREATE TABLE user_balances(user_id bigint,mint_address text,available numeric(30,9),locked numeric(30,9));INSERT INTO user_balances VALUES(1,'BTC',1,0);CREATE TABLE orders(id bigint,status text);CREATE TABLE engine_order_receipts(order_id bigint);CREATE TABLE engine_event_receipts(event_id text);CREATE TABLE bitcoin_credit_dispatch_attempts(id bigint);")
+ sql("CREATE TABLE user_balances(user_id bigint,mint_address text,available numeric(30,9),locked numeric(30,9));INSERT INTO user_balances VALUES(1,'BTC',1,0);CREATE TABLE orders(id bigint,status text);CREATE TABLE engine_order_receipts(order_id bigint);CREATE TABLE engine_event_receipts(event_id text);CREATE TABLE bitcoin_credit_dispatch_attempts(id bigint);CREATE TABLE bitcoin_withdrawals(id uuid);CREATE TABLE bitcoin_withdrawal_dispatch_attempts(id uuid);")
  broker.start()
  with tempfile.TemporaryDirectory(prefix='cex-withdrawal-journal-') as directory:
   env={k:v for k,v in os.environ.items() if not k.startswith(('ENGINE_','DATABASE_','KAFKA_'))};env.update(ENGINE_SERVICE_TOKEN=token,ENGINE_AUDIT_TOKEN=audit,DATABASE_HOST=address,ENGINE_HTTP_ADDRESS='127.0.0.1:'+str(port),KAFKA_BOOTSTRAP_SERVERS=broker.bootstrap,ENGINE_DATA_DIR=directory)

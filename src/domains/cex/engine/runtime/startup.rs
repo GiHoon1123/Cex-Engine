@@ -64,6 +64,25 @@ pub(super) async fn load_balances(pool: &PgPool) -> Result<BalanceCache> {
         "Engine startup blocked: native deposit dispatch history exists; restore the authoritative journal"
     );
 
+    // 출금 원본은 플랫폼에서 총액을 잠근 뒤 생긴다. 자체 저널이 없는 새 엔진이
+    // 이 잔액만 반입하면 동일한 출금 ID의 예약/거절·재전송 위치를 잃는다.
+    // 표가 없거나 읽을 수 없어도 이력이 없다고 추측하지 않는다.
+    let withdrawal: Option<String> =
+        sqlx::query_scalar("SELECT id::text FROM bitcoin_withdrawals ORDER BY id LIMIT 1")
+            .fetch_optional(&mut *transaction)
+            .await
+            .context("Failed to inspect native withdrawal history")?;
+    ensure!(withdrawal.is_none(),
+        "Engine startup blocked: native withdrawal history exists; restore the authoritative journal");
+    let withdrawal_attempt: Option<String> = sqlx::query_scalar(
+        "SELECT id::text FROM bitcoin_withdrawal_dispatch_attempts ORDER BY id LIMIT 1",
+    )
+    .fetch_optional(&mut *transaction)
+    .await
+    .context("Failed to inspect native withdrawal dispatch history")?;
+    ensure!(withdrawal_attempt.is_none(),
+        "Engine startup blocked: native withdrawal dispatch history exists; restore the authoritative journal");
+
     // 종료 상태만 명시적으로 허용한다. pending·partial뿐 아니라 알 수 없는
     // 상태도 복구 판단 없이 빠뜨리지 않는다. NULL 역시 종료로 간주하지 않는다.
     let unresolved_order: Option<(i64, Option<String>)> = sqlx::query_as(
