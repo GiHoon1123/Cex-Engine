@@ -1,6 +1,6 @@
 // =====================================================
 // 체결 엔진 모듈
-// Matching Engine Module
+// 체결 엔진 모듈
 // =====================================================
 // 고성능 주문 매칭 및 체결 엔진을 제공합니다.
 // 
@@ -18,9 +18,6 @@ pub mod balance_cache;
 
 pub mod runtime;
 
-// TODO: 나중에 구현
-// pub mod db_writer;
-
 use anyhow::Result;
 use async_trait::async_trait;
 use rust_decimal::Decimal;
@@ -31,7 +28,7 @@ pub use types::{
 };
 
 // =====================================================
-// Engine Trait (엔진 인터페이스)
+// 엔진 인터페이스
 // =====================================================
 // 체결 상태를 노출하지 않고 명령 송신 핸들이 구현할 동작만 정의한다.
 // =====================================================
@@ -71,10 +68,10 @@ pub trait Engine: Send + Sync {
     /// 새로운 주문을 엔진에 제출합니다.
     /// 엔진은 이 주문을 오더북에 추가하고, 즉시 매칭을 시도합니다.
     /// 
-    /// # Arguments
+    /// # 인자
     /// * `order` - 제출할 주문
     /// 
-    /// # Returns
+    /// # 반환값
     /// * `Ok(Vec<MatchResult>)` - 체결된 결과 목록 (부분 체결 가능)
     /// * `Err` - 주문 제출 실패 (잔고 부족, 유효하지 않은 주문 등)
     /// 
@@ -86,7 +83,7 @@ pub trait Engine: Send + Sync {
     /// 5. 체결 실행 (있을 경우)
     /// 6. 체결 결과 반환
     /// 
-    /// # Examples
+    /// # 예시
     /// ```
     /// let order = OrderEntry {
     ///     id: 1,
@@ -110,12 +107,12 @@ pub trait Engine: Send + Sync {
     /// 
     /// 오더북에 있는 주문을 취소합니다.
     /// 
-    /// # Arguments
+    /// # 인자
     /// * `order_id` - 취소할 주문 ID
     /// * `user_id` - 주문한 사용자 ID (권한 확인용)
     /// * `trading_pair` - 거래쌍
     /// 
-    /// # Returns
+    /// # 반환값
     /// * `Ok(OrderEntry)` - 취소된 주문 정보
     /// * `Err` - 주문 취소 실패 (존재하지 않음, 권한 없음, 이미 체결됨 등)
     /// 
@@ -126,7 +123,7 @@ pub trait Engine: Send + Sync {
     /// 4. 잠긴 잔고 해제
     /// 5. 주문 상태 업데이트 (cancelled)
     /// 
-    /// # Examples
+    /// # 예시
     /// ```
     /// let cancelled = engine.cancel_order(
     ///     1,  // order_id
@@ -152,16 +149,16 @@ pub trait Engine: Send + Sync {
     /// 
     /// 특정 거래쌍의 오더북을 조회합니다.
     /// 
-    /// # Arguments
+    /// # 인자
     /// * `trading_pair` - 조회할 거래쌍
     /// * `depth` - 조회할 가격 레벨 개수 (None이면 전체)
     /// 
-    /// # Returns
+    /// # 반환값
     /// * `(매수 주문 목록, 매도 주문 목록)`
     /// * 매수: 가격 내림차순 정렬 (높은 가격 먼저)
     /// * 매도: 가격 오름차순 정렬 (낮은 가격 먼저)
     /// 
-    /// # Examples
+    /// # 예시
     /// ```
     /// let (buy_orders, sell_orders) = engine.get_orderbook(
     ///     &trading_pair,
@@ -182,10 +179,10 @@ pub trait Engine: Send + Sync {
     /// 
     /// 오더북에서 가장 높은 매수 가격을 조회합니다.
     /// 
-    /// # Arguments
+    /// # 인자
     /// * `trading_pair` - 거래쌍
     /// 
-    /// # Returns
+    /// # 반환값
     /// * `Some(price)` - 최고 매수가
     /// * `None` - 매수 주문 없음
     async fn get_best_bid(&self, trading_pair: &TradingPair) -> Result<Option<Decimal>>;
@@ -195,10 +192,10 @@ pub trait Engine: Send + Sync {
     /// 
     /// 오더북에서 가장 낮은 매도 가격을 조회합니다.
     /// 
-    /// # Arguments
+    /// # 인자
     /// * `trading_pair` - 거래쌍
     /// 
-    /// # Returns
+    /// # 반환값
     /// * `Some(price)` - 최저 매도가
     /// * `None` - 매도 주문 없음
     async fn get_best_ask(&self, trading_pair: &TradingPair) -> Result<Option<Decimal>>;
@@ -212,12 +209,12 @@ pub trait Engine: Send + Sync {
     /// 
     /// 주문 생성 시 필요한 잔고를 잠급니다.
     /// 
-    /// # Arguments
+    /// # 인자
     /// * `user_id` - 사용자 ID
     /// * `mint` - 자산 종류
     /// * `amount` - 잠글 수량
     /// 
-    /// # Returns
+    /// # 반환값
     /// * `Ok(())` - 잠금 성공
     /// * `Err` - 잠금 실패 (잔고 부족)
     /// 
@@ -225,7 +222,7 @@ pub trait Engine: Send + Sync {
     /// - available 감소
     /// - locked 증가
     /// 
-    /// # Examples
+    /// # 예시
     /// ```
     /// // 매수 주문: USDT 잠금
     /// engine.lock_balance(
@@ -246,12 +243,12 @@ pub trait Engine: Send + Sync {
     /// 
     /// 주문 취소 시 잠긴 잔고를 해제합니다.
     /// 
-    /// # Arguments
+    /// # 인자
     /// * `user_id` - 사용자 ID
     /// * `mint` - 자산 종류
     /// * `amount` - 해제할 수량
     /// 
-    /// # Returns
+    /// # 반환값
     /// * `Ok(())` - 해제 성공
     /// 
     /// # 동작
@@ -269,11 +266,11 @@ pub trait Engine: Send + Sync {
     /// 
     /// 사용자의 특정 자산 잔고를 조회합니다.
     /// 
-    /// # Arguments
+    /// # 인자
     /// * `user_id` - 사용자 ID
     /// * `mint` - 자산 종류
     /// 
-    /// # Returns
+    /// # 반환값
     /// * `(available, locked)` - (사용 가능, 잠김) 잔고
     async fn get_balance(&self, user_id: u64, mint: &str) -> Result<(Decimal, Decimal)>;
 
@@ -286,12 +283,12 @@ pub trait Engine: Send + Sync {
     /// 1. 외부 지갑에서 우리 지갑으로 자산 입금 (온체인 트랜잭션)
     /// 2. 어드민 또는 이벤트로 인한 서비스 내 잔액 업데이트
     /// 
-    /// # Arguments
+    /// # 인자
     /// * `user_id` - 사용자 ID
     /// * `mint` - 자산 종류 (예: "SOL", "USDT")
     /// * `available_delta` - available 증감량 (양수: 입금, 음수: 출금)
     /// 
-    /// # Returns
+    /// # 반환값
     /// * `Ok(())` - 업데이트 성공
     /// * `Err` - 업데이트 실패
     /// 
@@ -301,7 +298,7 @@ pub trait Engine: Send + Sync {
     /// 3. WAL 메시지 발행 (BalanceUpdated)
     /// 4. DB 명령 전송 (UpdateBalance) → DB Writer가 배치로 처리
     /// 
-    /// # Examples
+    /// # 예시
     /// ```rust
     /// // 100 USDT 입금
     /// engine.update_balance(
@@ -327,16 +324,16 @@ pub trait Engine: Send + Sync {
 }
 // =====================================================
 // 유틸리티 함수
-// Utility Functions
+// 보조 함수
 // =====================================================
 
 /// Engine OrderEntry를 DB Order 모델로 변환
 /// Convert Engine OrderEntry to DB Order
 /// 
-/// # Arguments
+/// # 인자
 /// * `entry` - 엔진 내부 주문 엔트리
 /// 
-/// # Returns
+/// # 반환값
 /// * `Order` - DB Order 모델
 /// 
 /// # Note

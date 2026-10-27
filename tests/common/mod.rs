@@ -41,7 +41,7 @@ pub fn initial_usdt_balance() -> Decimal {
 /// 
 /// 데이터베이스 연결, 마이그레이션, 초기 잔고 설정을 순차적으로 수행합니다.
 /// 
-/// # Arguments
+/// # 인자
 /// * `with_orderbook` - 오더북을 미리 채울지 여부 (기본값: true)
 pub async fn setup_test() -> (HighPerformanceEngine, Database) {
     setup_test_with_orderbook(true).await
@@ -51,7 +51,7 @@ pub async fn setup_test() -> (HighPerformanceEngine, Database) {
 /// 
 /// 데이터베이스 연결, 마이그레이션, 초기 잔고 설정을 순차적으로 수행합니다.
 /// 
-/// # Arguments
+/// # 인자
 /// * `with_orderbook` - 오더북을 미리 채울지 여부
 pub async fn setup_test_with_orderbook(with_orderbook: bool) -> (HighPerformanceEngine, Database) {
     // 1. 데이터베이스 연결

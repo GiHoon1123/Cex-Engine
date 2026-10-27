@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 // =====================================================
 // 엔진 내부 타입 정의
-// Engine Internal Types
+// 엔진 내부 타입
 // =====================================================
 // 체결 엔진 내부에서 사용하는 타입들을 정의합니다.
 // 이 타입들은 엔진의 메모리 기반 처리에 최적화되어 있습니다.
@@ -16,11 +16,11 @@ use serde::{Deserialize, Serialize};
 /// 거래소에서 거래되는 자산 쌍을 나타냅니다.
 /// 예: SOL/USDT, USDC/USDT 등
 /// 
-/// # Fields
+/// # 필드
 /// * `base_mint` - 기준 자산 (예: "SOL", "USDC")
 /// * `quote_mint` - 기준 통화 (항상 "USDT")
 /// 
-/// # Examples
+/// # 예시
 /// ```
 /// let pair = TradingPair {
 ///     base_mint: "SOL".to_string(),
@@ -43,7 +43,7 @@ impl TradingPair {
     /// 새 거래쌍 생성
     /// Create new trading pair
     /// 
-    /// # Arguments
+    /// # 인자
     /// * `base_mint` - 기준 자산
     /// * `quote_mint` - 기준 통화
     pub fn new(base_mint: String, quote_mint: String) -> Self {
@@ -70,7 +70,7 @@ impl TradingPair {
 /// - DB Order: 영구 저장, 모든 필드 포함
 /// - OrderEntry: 메모리 전용, 매칭에 필요한 필드만 포함
 /// 
-/// # Fields
+/// # 필드
 /// * `id` - 주문 ID (DB와 동일)
 /// * `user_id` - 주문한 사용자 ID
 /// * `order_type` - 매수("buy") 또는 매도("sell")
@@ -83,7 +83,7 @@ impl TradingPair {
 /// * `remaining_amount` - 남은 수량 (amount - filled_amount)
 /// * `created_at` - 주문 생성 시간 (Time Priority에 사용)
 /// 
-/// # Examples
+/// # 예시
 /// ```
 /// // 지정가 매수 주문
 /// let order = OrderEntry {
@@ -174,7 +174,7 @@ impl OrderEntry {
     /// 주문이 완전 체결되었는지 확인
     /// Check if order is fully filled
     /// 
-    /// # Returns
+    /// # 반환값
     /// * `true` - 주문이 완전히 체결됨 (remaining_amount == 0)
     /// * `false` - 아직 미체결 수량 존재
     pub fn is_fully_filled(&self) -> bool {
@@ -212,7 +212,7 @@ impl OrderEntry {
 /// 두 주문이 매칭되어 체결될 때의 정보를 담는 구조체입니다.
 /// 매칭 알고리즘(Matcher)이 생성하고, 체결 실행기(Executor)가 처리합니다.
 /// 
-/// # Fields
+/// # 필드
 /// * `buy_order_id` - 매수 주문 ID
 /// * `sell_order_id` - 매도 주문 ID
 /// * `price` - 체결 가격 (기존 주문의 가격 사용, Price Priority)
@@ -220,7 +220,7 @@ impl OrderEntry {
 /// * `base_mint` - 기준 자산
 /// * `quote_mint` - 기준 통화
 /// 
-/// # Examples
+/// # 예시
 /// ```
 /// // 매수자 A와 매도자 B의 주문이 매칭됨
 /// let match_result = MatchResult {
@@ -282,10 +282,10 @@ impl MatchResult {
     /// 체결 총액 계산 (price * amount)
     /// Calculate total value (price * amount)
     /// 
-    /// # Returns
+    /// # 반환값
     /// 체결 총액 (USDT 기준)
     /// 
-    /// # Examples
+    /// # 예시
     /// ```
     /// let result = MatchResult {
     ///     price: Decimal::new(100, 0),  // 100 USDT
@@ -305,7 +305,7 @@ impl MatchResult {
 /// 엔진에서 발생하는 이벤트를 나타냅니다.
 /// WAL (Write-Ahead Log) 및 DB 쓰기 큐에서 사용됩니다.
 /// 
-/// # Variants
+/// # 변형
 /// * `OrderCreated` - 주문 생성
 /// * `OrderCancelled` - 주문 취소
 /// * `TradeExecuted` - 체결 실행

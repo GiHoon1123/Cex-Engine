@@ -1,5 +1,5 @@
 // =====================================================
-// Kafka Producer - 이벤트 발행
+// Kafka 발행기 - 이벤트 발행
 // =====================================================
 // 역할: Rust 엔진에서 발생하는 이벤트를 Kafka로 발행
 //
@@ -26,7 +26,7 @@ use rdkafka::producer::{FutureProducer, FutureRecord};
 use serde::Serialize;
 use std::time::Duration;
 
-/// Kafka Producer
+/// Kafka 발행기
 ///
 /// 비동기로 Kafka 이벤트를 발행합니다.
 /// 완료 대기는 전용 출력 워커에서 수행한다.
@@ -36,12 +36,12 @@ pub struct KafkaProducer {
 }
 
 impl KafkaProducer {
-    /// 새 Kafka Producer 생성
+    /// 새 Kafka 발행기 생성
     ///
-    /// # Arguments
+    /// # 인자
     /// * `bootstrap_servers` - Kafka 브로커 주소 (예: "localhost:9092")
     ///
-    /// # Returns
+    /// # 반환값
     /// KafkaProducer 인스턴스
     pub fn new(bootstrap_servers: &str) -> Result<Self> {
         let producer: FutureProducer = ClientConfig::new()
@@ -70,12 +70,12 @@ impl KafkaProducer {
 
     /// Kafka 메시지 발행 (내부 메서드)
     ///
-    /// # Arguments
+    /// # 인자
     /// * `topic` - 토픽 이름
     /// * `key` - 메시지 키 (옵션)
     /// * `value` - 메시지 값 (JSON 직렬화)
     ///
-    /// # Returns
+    /// # 반환값
     /// 발행 성공 여부
     async fn publish<T: Serialize>(&self, topic: &str, key: Option<&str>, value: &T) -> Result<()> {
         // JSON 직렬화

@@ -1,4 +1,4 @@
-// Shared database module
+// 공통 데이터베이스 모듈
 pub mod connection;
 pub mod repositories;
 

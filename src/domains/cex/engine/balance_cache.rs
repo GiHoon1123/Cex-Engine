@@ -97,11 +97,11 @@ impl BalanceCache {
     
     /// 잔고 조회 (없으면 0으로 초기화)
     /// 
-    /// # Arguments
+    /// # 인자
     /// * `user_id` - 사용자 ID
     /// * `mint` - 자산 주소
     /// 
-    /// # Returns
+    /// # 반환값
     /// 잔고 (가변 참조)
     pub fn get_balance_mut(&mut self, user_id: u64, mint: &str) -> &mut Balance {
         // entry()는 키가 없으면 기본값으로 삽입하고 참조 반환
@@ -118,12 +118,12 @@ impl BalanceCache {
     
     /// 사용 가능 잔고 확인
     /// 
-    /// # Arguments
+    /// # 인자
     /// * `user_id` - 사용자 ID
     /// * `mint` - 자산 주소
     /// * `required_amount` - 필요한 금액
     /// 
-    /// # Returns
+    /// # 반환값
     /// 잔고가 충분하면 true
     pub fn check_sufficient_balance(
         &self,
@@ -140,12 +140,12 @@ impl BalanceCache {
     /// 잔고 잠금 (주문 생성 시)
     /// available 차감 → locked 증가
     /// 
-    /// # Arguments
+    /// # 인자
     /// * `user_id` - 사용자 ID
     /// * `mint` - 자산 주소
     /// * `amount` - 잠글 금액
     /// 
-    /// # Returns
+    /// # 반환값
     /// 성공 또는 에러 (잔고 부족 시)
     pub fn lock_balance(
         &mut self,
@@ -198,7 +198,7 @@ impl BalanceCache {
 
     /// 사용 가능 잔고 증가/감소 (입금/출금용)
     /// 
-    /// # Arguments
+    /// # 인자
     /// * `user_id` - 사용자 ID
     /// * `mint` - 자산 종류
     /// * `delta` - 증감량 (양수: 입금, 음수: 출금)

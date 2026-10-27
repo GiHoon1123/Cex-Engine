@@ -1,13 +1,11 @@
 // 거래 명령과 영속 기록에 필요한 공통 모듈이다.
 pub mod database;
 pub mod services;
-pub mod utils;
 pub mod handlers;
 pub mod kafka;
 
 pub use database::*;
 pub use services::*;
-pub use utils::*;
 pub use handlers::*;
 pub use kafka::*;
 

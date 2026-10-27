@@ -5,6 +5,7 @@ use crate::domains::cex::engine::{
 use crate::domains::cex::models::order::{CreateOrderRequest, Order};
 use crate::shared::database::Database;
 use anyhow::{bail, Context, Result};
+#[cfg(test)]
 use chrono::Utc;
 use rust_decimal::Decimal;
 
@@ -14,14 +15,12 @@ use rust_decimal::Decimal;
 #[derive(Clone)]
 pub struct OrderService {
     /// 데이터베이스 연결
-    /// Database connection
     db: Database,
 
     /// 체결 엔진 (구체 타입 직접 사용)
-    /// Matching engine (concrete type)
     ///
     /// 엔진은 하나만 존재하므로 구체 타입을 직접 사용합니다.
-    /// Wrapper 없이 동일한 인스턴스를 공유합니다.
+    /// 별도 포장 타입 없이 같은 송신 핸들을 공유합니다.
     engine: EngineHandle,
 }
 
@@ -81,11 +80,11 @@ impl OrderService {
     ///
     /// 대기 중이거나 부분 체결된 주문을 취소합니다.
     ///
-    /// # Arguments
+    /// # 인자
     /// * `user_id` - 주문을 취소하려는 사용자 ID (권한 확인용)
     /// * `order_id` - 취소할 주문 ID
     ///
-    /// # Returns
+    /// # 반환값
     /// * `Ok(Order)` - 취소된 주문 정보
     /// * `Err` - 취소 실패 (존재하지 않음, 권한 없음, 이미 체결됨 등)
     ///
@@ -102,7 +101,7 @@ impl OrderService {
     /// - 이미 전량 체결됨
     /// - 이미 취소됨
     ///
-    /// # Examples
+    /// # 예시
     /// ```
     /// let cancelled = service.cancel_order(user_id, order_id, &pair).await?;
     /// println!("주문 취소: {}", cancelled.id);
