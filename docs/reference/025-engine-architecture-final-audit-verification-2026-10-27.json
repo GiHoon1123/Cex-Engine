@@ -1,0 +1,14 @@
+{
+  "architecture_checks": {"passed": 7, "failed": 0},
+  "isolated_postgresql_regression": {"executions": 251, "unique": 213, "failed": 0, "ignored": 0, "checks": 19, "container_removed": true},
+  "compile_only": {"command": "cargo test --locked --offline --no-run", "exit": 0},
+  "initial_unisolated_run": {"passed": 159, "failed": 51, "cause": "DATABASE_URL 미설정", "counted_as_product_failure": false},
+  "removed_paths": [
+    "src/domains/cex/engine/mock.rs",
+    "src/domains/cex/services/balance_service.rs",
+    "src/domains/cex/models/balance.rs",
+    "src/shared/database/repositories/cex/balance_repository.rs"
+  ],
+  "remaining_shared_lock_declarations": 0,
+  "unexpected_bench_cfg_warnings": 0
+}
