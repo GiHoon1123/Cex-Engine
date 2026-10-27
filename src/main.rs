@@ -3,31 +3,26 @@ use tokio::net::TcpListener;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-// 실행하는 도메인과 HTTP 경계를 조립한다.
-mod domains;
-mod routes;
-mod shared;
-
-use crate::shared::database::Database;
-use crate::shared::services::AppState;
-use routes::create_router;
+use cex_engine::routes::create_router;
+use cex_engine::shared::database::Database;
+use cex_engine::shared::services::AppState;
 
 // 실제 공개하는 거래 API 모델만 스키마에 등록한다.
-use crate::domains::cex::models::*;
+use cex_engine::domains::cex::models::*;
 
-// OpenAPI 스키마 정의: Swagger 문서 자동 생성 (최소화: 주문 생성/취소/헬스체크만)
+// 주문 생성·취소·상태 확인에 필요한 공개 스키마만 문서에 포함한다.
 #[derive(OpenApi)]
 #[openapi(
     paths(
-        crate::shared::handlers::health::health_check,
-        crate::domains::cex::handlers::order_handler::create_order,
-        crate::domains::cex::handlers::order_handler::cancel_order,
+        cex_engine::shared::handlers::health::health_check,
+        cex_engine::domains::cex::handlers::order_handler::create_order,
+        cex_engine::domains::cex::handlers::order_handler::cancel_order,
     ),
     components(schemas(
         Order,
         CreateOrderRequest,
-        crate::domains::cex::services::order_receipt::OrderAcceptance,
-        crate::shared::handlers::health::HealthResponse,
+        cex_engine::domains::cex::services::order_receipt::OrderAcceptance,
+        cex_engine::shared::handlers::health::HealthResponse,
     )),
     tags(
         (name = "CEX Orders", description = "CEX Exchange order API endpoints"),
@@ -47,31 +42,16 @@ async fn main() {
     let service_token = std::env::var("ENGINE_SERVICE_TOKEN").expect("ENGINE_SERVICE_TOKEN이 필요합니다");
     assert!((32..=1024).contains(&service_token.len()), "잘못된 서비스 키 길이");
 
-    // DB 연결
-    // Docker 컨테이너 환경에서는 환경 변수로 호스트 지정 가능
-    // 기본값: 프로덕션은 컨테이너 이름, 개발은 localhost
-    let db_host = std::env::var("DATABASE_HOST").unwrap_or_else(|_| {
-        if std::env::var("RUST_ENV").unwrap_or_else(|_| "dev".to_string()) == "prod" {
-            "cex-postgres".to_string() // Docker 컨테이너 이름
-        } else {
-            "localhost".to_string() // 로컬 개발 환경
-        }
-    });
-    let db_url = format!("postgresql://root:1234@{}/cex", db_host);
-    let db = Database::lazy(&db_url).expect("Failed to connect to database");
-
-    // DB 초기화 (마이그레이션) - 주문 생성/취소에 필요
-    // 마이그레이션 체크섬 불일치 문제로 인해 일단 주석 처리 (테스트용)
-    // db.initialize()
-    //     .await
-    //     .expect("Failed to initialize database");
-    eprintln!("[Main] Skipping database migrations (test mode)");
+    // 플랫폼 디비는 주문 접수 어댑터가 지연 연결한다. 접속 정보에는 자격 증명이
+    // 포함되므로 호스트 조각을 조립하거나 개발용 비밀번호로 대체하지 않는다.
+    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL이 필요합니다");
+    let db = Database::lazy(&database_url).expect("DATABASE_URL 형식이 올바르지 않습니다");
 
     // 생명주기 제어 객체는 main에 남긴다. 검증 후 거래 상태를 워커로 이동하고,
     // HTTP·UDP에는 복제 가능한 송신 핸들만 주입한다.
-    let mut engine = crate::domains::cex::engine::runtime::HighPerformanceEngine::new(db.clone());
+    let mut engine = cex_engine::domains::cex::engine::runtime::HighPerformanceEngine::new(db.clone());
     // 고객 명령과 내부 감사 조회를 조립한다. 내부 키는 고객 인증과 별도로 주입한다.
-    let audit = crate::domains::cex::engine::runtime::audit::AuditReader::new(
+    let audit = cex_engine::domains::cex::engine::runtime::audit::AuditReader::new(
         engine.journal_directory(),
         std::env::var("ENGINE_AUDIT_TOKEN").ok(),
     ).expect("잘못된 감사 조회 설정");
@@ -80,7 +60,7 @@ async fn main() {
 
     let app = Router::new()
         .merge(create_router(&service_token))
-        // Swagger UI 활성화
+        // 내부 운영자가 현재 계약을 확인할 수 있도록 문서 화면을 함께 제공한다.
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .with_state(app_state)
         .layer(axum::Extension(audit));
@@ -90,10 +70,9 @@ async fn main() {
         std::env::var("ENGINE_HTTP_ADDRESS").unwrap_or_else(|_| "127.0.0.1:3002".into());
     let listener = TcpListener::bind(&http_address).await.unwrap();
 
-    eprintln!("[Main] Server running on http://{}", http_address);
-    eprintln!("[Main] Database: PostgreSQL (cex)");
+    eprintln!("엔진 서버가 http://{} 에서 실행 중입니다", http_address);
 
-    // 서버 실행
+    // 종료 신호가 오면 신규 접수를 막고 출력 워커까지 회수한다.
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await

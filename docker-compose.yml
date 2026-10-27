@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   cex-engine:
     build: .
@@ -8,9 +6,14 @@ services:
     
     # 환경 변수
     environment:
-      - RUST_ENV=prod
       - RUST_LOG=info
-      # DATABASE_URL과 JWT_SECRET은 코드에서 하드코딩됨
+      # 값이 없으면 기동하지 않는다. 비밀 파일이나 배포 환경에서 주입한다.
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL이 필요합니다}
+      - ENGINE_SERVICE_TOKEN=${ENGINE_SERVICE_TOKEN:?ENGINE_SERVICE_TOKEN이 필요합니다}
+      - ENGINE_AUDIT_TOKEN=${ENGINE_AUDIT_TOKEN:?ENGINE_AUDIT_TOKEN이 필요합니다}
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS:?KAFKA_BOOTSTRAP_SERVERS가 필요합니다}
+      - ENGINE_HTTP_ADDRESS=0.0.0.0:3002
+      - ENGINE_DATA_DIR=/app/data
     
     # 포트 매핑
     ports:
@@ -24,16 +27,16 @@ services:
     # 실시간 스케줄링 권한 (우선순위 99)
     cap_add:
       - SYS_NICE
+
+    cpuset: "0"
     
     # 리소스 제한 및 코어 고정 (Core 0 전용)
-    # 주의: cpuset_cpus는 deploy 섹션 안에 있어야 합니다
     deploy:
       resources:
         limits:
           cpus: '1'  # Core 0만 사용 (고정)
           memory: 1.5G
         reservations:
-          cpus: '1'  # Core 0 예약
           memory: 512M
           cpus: '1'  # Core 0 고정
     
@@ -48,8 +51,10 @@ services:
       retries: 3
       start_period: 10s
     
-    # 볼륨 마운트 (필요시)
-    # volumes:
-    #   - ./logs:/app/logs
-    #   - ./data:/app/data
+    # 자체 저널은 컨테이너 재생성 뒤에도 남아야 한다.
+    volumes:
+      - engine-data:/app/data
+
+volumes:
+  engine-data:
 

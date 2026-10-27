@@ -19,7 +19,7 @@ fn invalid_audit_identity_fails_before_journal_creation() {
             )
             .env("ENGINE_AUDIT_TOKEN", &invalid_key)
             .env("ENGINE_DATA_DIR", directory.path().join("journal"))
-            .env("DATABASE_HOST", "127.0.0.1:1")
+            .env("DATABASE_URL", "postgresql://test:test@127.0.0.1:1/test")
             .env("KAFKA_BOOTSTRAP_SERVERS", "127.0.0.1:1")
             .env("ENGINE_HTTP_ADDRESS", "127.0.0.1:0")
             .stdout(Stdio::null())
@@ -47,4 +47,32 @@ fn invalid_audit_identity_fails_before_journal_creation() {
         // 키 검증 실패로 이 지점에 도달하지 않았음을 디렉터리 부재로 확인한다.
         assert!(!directory.path().join("journal").exists());
     }
+}
+
+#[test]
+fn missing_database_url_fails_without_using_a_development_credential() {
+    let directory = tempfile::tempdir().unwrap();
+    let error_path = directory.path().join("startup-error.log");
+    let status = Command::new(env!("CARGO_BIN_EXE_cex-engine"))
+        .env_clear()
+        .env(
+            "ENGINE_SERVICE_TOKEN",
+            "isolated-startup-service-token-32-bytes",
+        )
+        .env(
+            "ENGINE_AUDIT_TOKEN",
+            "isolated-startup-audit-token-32-bytes",
+        )
+        .env("ENGINE_DATA_DIR", directory.path().join("journal"))
+        .stdout(Stdio::null())
+        .stderr(File::create(&error_path).unwrap())
+        .status()
+        .unwrap();
+
+    assert!(!status.success());
+    let error = std::fs::read_to_string(error_path).unwrap();
+    assert!(error.contains("DATABASE_URL이 필요합니다"));
+    assert!(!error.contains("root:1234"));
+    // 설정 검사가 거래 상태 생성보다 앞서므로 잘못된 기본값으로 저널을 만들지 않는다.
+    assert!(!directory.path().join("journal").exists());
 }

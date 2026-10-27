@@ -1,10 +1,10 @@
 // =====================================================
-// Health Check Handler
+// 상태 확인 처리기
 // =====================================================
 // 역할: 서버 상태 확인 API
 //
 // 엔드포인트: GET /api/health
-// 응답: 200 OK with JSON body
+// 응답: 본문을 포함한 정상 상태 코드
 // =====================================================
 
 use crate::shared::services::AppState;
@@ -13,26 +13,22 @@ use serde::Serialize;
 use utoipa::ToSchema;
 
 /// 헬스체크 응답 모델
-/// Health check response model
 #[derive(Debug, Serialize, ToSchema)]
 pub struct HealthResponse {
     /// 서버 상태
-    /// Server status
     #[schema(example = "ok")]
     pub status: String,
 
     /// 서버 메시지
-    /// Server message
     #[schema(example = "Server is running")]
     pub message: String,
 }
 
 /// 헬스체크 핸들러
-/// Health check handler
 ///
 /// 서버가 정상적으로 실행 중인지 확인하는 엔드포인트입니다.
 ///
-/// # Response
+/// # 응답
 /// - 200: 서버 정상 작동
 #[utoipa::path(
     get,

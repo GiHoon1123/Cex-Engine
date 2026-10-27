@@ -180,7 +180,7 @@ try:
     with tempfile.TemporaryDirectory(prefix="cex-receipt-wal-") as wal:
         env = os.environ.copy()
         env["ENGINE_SERVICE_TOKEN"] = service_token
-        env.update({"DATABASE_HOST": database_address, "KAFKA_BOOTSTRAP_SERVERS": kafka.bootstrap,
+        env.update({"DATABASE_URL": f"postgresql://root:1234@{database_address}/cex", "KAFKA_BOOTSTRAP_SERVERS": kafka.bootstrap,
                     "ENGINE_HTTP_ADDRESS": f"127.0.0.1:{engine_port}", "ENGINE_DATA_DIR": wal})
         binary = str(ROOT / "Cex-Engine/target/debug/cex-engine")
         engine, engine_log = start([binary], "durable-acceptance-engine.log", env)

@@ -1,5 +1,3 @@
-version: '3.8'
-
 # =====================================================
 # 프로덕션 배포용 Docker Compose 설정
 # =====================================================
@@ -17,9 +15,14 @@ services:
     
     # 환경 변수
     environment:
-      - RUST_ENV=prod
       - RUST_LOG=info
-      # DATABASE_URL과 JWT_SECRET은 코드에서 하드코딩됨
+      # 운영 비밀 저장소가 모든 값을 주입하며 기본 자격 증명은 허용하지 않는다.
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL이 필요합니다}
+      - ENGINE_SERVICE_TOKEN=${ENGINE_SERVICE_TOKEN:?ENGINE_SERVICE_TOKEN이 필요합니다}
+      - ENGINE_AUDIT_TOKEN=${ENGINE_AUDIT_TOKEN:?ENGINE_AUDIT_TOKEN이 필요합니다}
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS:?KAFKA_BOOTSTRAP_SERVERS가 필요합니다}
+      - ENGINE_HTTP_ADDRESS=0.0.0.0:3002
+      - ENGINE_DATA_DIR=/app/data
     
     # 포트 매핑
     ports:
@@ -31,7 +34,7 @@ services:
     
     # 코어 고정: Core 0에 고정
     # 엔진 스레드가 항상 Core 0에서 실행되도록 보장
-    cpuset_cpus: "0"
+    cpuset: "0"
     
     # 실시간 스케줄링 권한
     # SCHED_FIFO 우선순위 99 설정을 위해 필요
@@ -69,4 +72,10 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+    volumes:
+      - engine-data:/app/data
+
+volumes:
+  engine-data:
 
