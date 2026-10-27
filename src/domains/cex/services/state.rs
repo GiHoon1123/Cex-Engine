@@ -1,33 +1,21 @@
-// CEX domain state
-// CEX 도메인 상태
 use crate::shared::database::Database;
-use crate::domains::cex::services::{BalanceService, OrderService};
+use crate::domains::cex::services::OrderService;
 use crate::domains::cex::engine::runtime::EngineHandle;
 
 /// CEX domain state
 /// CEX 도메인에서 필요한 서비스들을 포함하는 상태
 #[derive(Clone)]
 pub struct CexState {
-    pub engine: EngineHandle,
-    pub balance_service: BalanceService,
     pub order_service: OrderService,
-    // trade_service와 position_service는 Java에서 조회 API를 제공하므로 삭제됨
 }
 
 impl CexState {
-    /// Create CexState with database and engine
-    /// CexState 생성 (데이터베이스 + 엔진 필요)
-    /// 
-    /// # Arguments
-    /// * `db` - 데이터베이스 연결
-    /// * `engine` - 체결 엔진 (구체 타입 직접 사용)
+    /// 주문 원본 DB와 단일 코어 명령 핸들만 HTTP 상태에 연결한다.
     pub fn new(db: Database, engine: EngineHandle) -> Self {
         Self {
-            engine: engine.clone(),
-            balance_service: BalanceService::new(db.clone(), engine.clone()),
-            order_service: OrderService::new(db.clone(), engine.clone()),
+            order_service: OrderService::new(db, engine),
         }
     }
 }
 
-     
+

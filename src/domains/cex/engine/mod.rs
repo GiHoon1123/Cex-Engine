@@ -11,7 +11,6 @@
 
 pub mod types;
 pub(crate) mod amount;
-pub mod mock;
 pub mod orderbook;
 pub mod matcher;
 pub mod executor;
@@ -30,35 +29,25 @@ use chrono::Utc;
 pub use types::{
     TradingPair, OrderEntry, MatchResult, EngineEvent, OrderStatus,
 };
-pub use mock::MockEngine;
 
 // =====================================================
 // Engine Trait (엔진 인터페이스)
 // =====================================================
-// 체결 엔진의 공개 인터페이스를 정의합니다.
-// Service 계층은 이 trait만 사용하여 엔진과 통신합니다.
-// 
-// 장점:
-// 1. 구현 세부사항 숨김 (Information Hiding)
-// 2. 테스트 용이성 (Mock 구현 가능)
-// 3. 다양한 구현체 지원 (동기/비동기, 단순/고성능)
+// 체결 상태를 노출하지 않고 명령 송신 핸들이 구현할 동작만 정의한다.
 // =====================================================
 
 /// 체결 엔진 인터페이스
-/// Matching Engine Interface
-/// 
 /// 주문 제출, 체결, 취소 등 엔진의 핵심 기능을 정의합니다.
 /// 
 /// # 구현체
-/// - `SimpleEngine`: 동기 방식, DB 직접 사용 (Phase 1)
-/// - `HighPerfEngine`: 메모리 기반, WAL, Ring Buffer (Phase 2)
-/// - `MockEngine`: 테스트용
+/// 실제 구현은 명령 송신 핸들인 `EngineHandle`이다. 거래 상태와 워커 생명주기는
+/// `HighPerformanceEngine`만 소유하며 서비스에는 공유하지 않는다.
 /// 
 /// # 사용 예시
 /// ```
 /// // Service에서 사용
 /// pub struct OrderService {
-///     engine: Arc<dyn Engine>,  // trait 객체로 사용
+///     engine: EngineHandle,
 ///     // ...
 /// }
 /// 
