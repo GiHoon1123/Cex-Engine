@@ -54,3 +54,4 @@
 - [출금 이력이 있으면 새 초기 반입 차단](decisions/024-withdrawal-history-bootstrap-guard.md): 불변 출금 원본·불명 전달 이력·표 누락을 확인하고 자체 WAL 복원을 요구한다.
 
 - [단일 소유 체결 코어의 최종 구조 감사와 폐기 경로 제거](decisions/025-engine-architecture-final-audit.md): 공유 락·워커 경계 검사, 미사용 DB 잔고/모의 코어 삭제, 격리 회귀.
+- [엔진 컨테이너의 내부 실행 경계](decisions/026-container-runtime-boundary.md): 고정 도구 체인·필수 빌드/헬스 도구·비특권 WAL 사용자·플랫폼 전용 내부 포트와 실제 이미지 기동 검증.
